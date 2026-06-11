@@ -14,42 +14,23 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-np.random.seed(42)
-
 # -----------------------
 # DATA
 # -----------------------
 n = 5000
 
-df = pd.DataFrame({
-    "date": pd.date_range("2025-01-01", periods=n, freq="h"),
-    "store_id": np.random.choice([f"S{i}" for i in range(1, 21)], n),
-    "product_id": np.random.choice([f"P{i}" for i in range(1, 101)], n),
-    "category": np.random.choice(["Electronics", "Groceries", "Fashion", "Home", "Beauty"], n),
-    "region": np.random.choice(["North", "South", "East", "West"], n),
-    "inventory_level": np.random.randint(20, 500, n),
-    "units_sold": np.random.randint(1, 100, n),
-    "units_ordered": np.random.randint(10, 150, n),
-    "price": np.random.uniform(10, 500, n),
-    "discount": np.random.uniform(0, 0.30, n),
-    "weather_condition": np.random.choice(["Sunny", "Rainy", "Cloudy", "Stormy"], n),
-    "promotion": np.random.choice([0, 1], n),
-    "competitor_pricing": np.random.uniform(10, 500, n),
-    "seasonality": np.random.choice(["Spring", "Summer", "Autumn", "Winter"], n),
-    "epidemic": np.random.choice([0, 1], n),
-    "demand": np.random.randint(20, 150, n)
-})
+df = pd.read_excel('data/sales_data.xls')
 
-df["Revenue"] = df["units_sold"] * df["price"] * (1 - df["discount"])
-df["Inventory Value"] = df["inventory_level"] * df["price"]
-df["Lost Demand"] = np.maximum(df["demand"] - df["units_sold"], 0)
-df["Stockout"] = df["inventory_level"] < df["demand"]
-df["Overstock"] = df["inventory_level"] > 2 * df["demand"]
-df["Sell Through Rate"] = df["units_sold"] / np.maximum(df["demand"], 1)
-df["Inventory Turnover"] = df["units_sold"] / np.maximum(df["inventory_level"], 1)
-df["Coverage Days"] = df["inventory_level"] / np.maximum(df["demand"], 1)
-df["Price Gap"] = df["price"] - df["competitor_pricing"]
-df["Gross Profit (Proxy)"] = df["Revenue"] - (df["inventory_level"] * df["price"] * 0.4)
+df["Revenue"] = df["Units Sold"] * df["Price"] * (1 - (df["Discount"] / 100))
+df["Inventory Value"] = df["Inventory Level"] * df["Price"]
+df["Lost Demand"] = np.maximum(df["Demand"] - df["Units Sold"], 0)
+df["Stockout"] = df["Inventory Level"] < df["Demand"]
+df["Overstock"] = df["Inventory Level"] > (2 * df["Demand"])
+df["Sell Through Rate"] = df["Units Sold"] / np.maximum(df["Inventory Level"], 1)
+df["Inventory Turnover"] = df["Units Sold"] / np.maximum(df["Inventory Level"], 1)
+df["Coverage Days"] = df["Inventory Level"] / np.maximum(df["Demand"], 1)
+df["Price Gap"] = df["Price"] - df["Competitor Pricing"]
+df["Gross Profit (Proxy)"] = df["Revenue"] - (df["Units Sold"] * df["Price"] * 0.4)
 
 # -----------------------
 # HELPERS
@@ -128,13 +109,13 @@ def get_data_context():
     profit = df["Gross Profit (Proxy)"].sum()
     stockout = df["Stockout"].mean() * 100
     overstock = df["Overstock"].mean() * 100
-    top_cat = df.groupby("category")["Revenue"].sum().idxmax()
-    top_region = df.groupby("region")["Revenue"].sum().idxmax()
+    top_cat = df.groupby("Category")["Revenue"].sum().idxmax()
+    top_region = df.groupby("Region")["Revenue"].sum().idxmax()
     lost = df["Lost Demand"].sum()
     inv_val = df["Inventory Value"].sum()
     inv_turnover = df["Inventory Turnover"].mean()
     coverage = df["Coverage Days"].mean()
-    promo_lift = ((df[df['promotion']==1]['Revenue'].mean() / df[df['promotion']==0]['Revenue'].mean()) - 1)*100
+    promo_lift = ((df[df['Promotion']==1]['Revenue'].mean() / df[df['Promotion']==0]['Revenue'].mean()) - 1)*100
 
     return f"""You are an expert AI retail analytics assistant embedded in a Retail Analytics Dashboard.
 Current data summary:
@@ -142,8 +123,8 @@ Current data summary:
 BUSINESS PERFORMANCE:
 - Total Revenue: {fmt_money(revenue)}
 - Estimated Gross Profit: {fmt_money(profit)}
-- Total Units Sold: {fmt_num(df['units_sold'].sum())}
-- Total Demand: {fmt_num(df['demand'].sum())}
+- Total Units Sold: {fmt_num(df['Units Sold'].sum())}
+- Total Demand: {fmt_num(df['Demand'].sum())}
 - Lost/Unmet Demand: {fmt_num(lost)} units
 
 INVENTORY HEALTH:
@@ -156,11 +137,11 @@ INVENTORY HEALTH:
 TOP PERFORMERS:
 - Highest Revenue Category: {top_cat}
 - Highest Revenue Region: {top_region}
-- Top Store by Revenue: {df.groupby('store_id')['Revenue'].sum().idxmax()}
+- Top Store by Revenue: {df.groupby('Store ID')['Revenue'].sum().idxmax()}
 
-PROMOTIONS:
-- Promotion Revenue Lift: +{promo_lift:.1f}% vs no promotion
-- Epidemic records: {df['epidemic'].mean()*100:.1f}% of data
+PS:
+- Promotion Revenue Lift: +{promo_lift:.1f}% vs no Promotion
+- Epidemic records: {df['Epidemic'].mean()*100:.1f}% of data
 
 SCOPE: Electronics/Groceries/Fashion/Home/Beauty | North/South/East/West | S1-S20 stores | P1-P100 products | Jan 2025, 5000 hourly records.
 
@@ -214,9 +195,9 @@ def ai_assistant_panel(page_key="global"):
     # Quick prompts
     quick_prompts = [
         "What is the stockout risk?",
-        "Which category earns most?",
-        "How do promotions impact sales?",
-        "Which region is underperforming?",
+        "Which Category earns most?",
+        "How do Ps impact sales?",
+        "Which Region is underperforming?",
     ]
     qc = st.columns(2)
     for i, prompt in enumerate(quick_prompts):
@@ -308,7 +289,7 @@ def home():
 
     kpi_row([
         ("Total Revenue", fmt_money(df["Revenue"].sum()), "12.6% vs Apr", "pos"),
-        ("Total Units Sold", fmt_num(df["units_sold"].sum()), "8.3% vs Apr", "pos"),
+        ("Total Units Sold", fmt_num(df["Units Sold"].sum()), "8.3% vs Apr", "pos"),
         ("Inventory Value", fmt_money(df["Inventory Value"].sum()), "6.5% vs Apr", "pos"),
         ("Stockout Risk", fmt_pct(df["Stockout"].mean()*100), "0.6% vs Apr", "neg"),
         ("Overstock Risk", fmt_pct(df["Overstock"].mean()*100), "1.3% vs Apr", "neg"),
@@ -340,7 +321,7 @@ def home():
         st.markdown("""<div class='home-card'>
             <div style='font-size:36px;margin-bottom:10px;'>🏬</div>
             <div style='font-size:15px;font-weight:700;color:#38BDF8;margin-bottom:6px;'>Branch Manager Dashboard</div>
-            <div style='color:#64748B;font-size:12px;line-height:1.7;'>Store performance, sales insights, and demand overview.</div>
+            <div style='color:#64748B;font-size:12px;line-height:1.7;'>Store performance, sales insights, and Demand overview.</div>
         </div>""", unsafe_allow_html=True)
         if st.button("Open Branch Dashboard →", key="home_br", use_container_width=True):
             st.session_state.page = "branch"; st.rerun()
@@ -350,8 +331,8 @@ def home():
 
     lc, rc = st.columns([2, 1])
     with lc:
-        ts = df.groupby(df["date"].dt.to_period("M")).agg({"Revenue": "sum", "Lost Demand": "sum"}).reset_index()
-        ts["Month"] = ts["date"].astype(str)
+        ts = df.groupby(df["Date"].dt.to_period("M")).agg({"Revenue": "sum", "Lost Demand": "sum"}).reset_index()
+        ts["Month"] = ts["Date"].astype(str)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=ts["Month"], y=ts["Revenue"], name="Revenue",
                                   line=dict(color="#6C63FF", width=2.5),
@@ -362,8 +343,8 @@ def home():
         dark_layout(fig, "Revenue vs Lost Demand (Monthly)", height=270, legend_h=True)
         st.plotly_chart(fig, use_container_width=True)
     with rc:
-        cat = df.groupby("category")["Revenue"].sum().reset_index()
-        fig2 = go.Figure(data=[go.Pie(labels=cat["category"], values=cat["Revenue"],
+        cat = df.groupby("Category")["Revenue"].sum().reset_index()
+        fig2 = go.Figure(data=[go.Pie(labels=cat["Category"], values=cat["Revenue"],
                                        hole=0.5, marker_colors=PLOTLY_COLORS,
                                        textinfo="percent+label",
                                        textfont=dict(color="#E2E8F0", size=11))])
@@ -385,18 +366,18 @@ def ceo_dashboard():
 
     dff = df.copy()
     if date_filter == "Last Month":
-        dff = df[df["date"] >= df["date"].max() - pd.Timedelta(days=30)]
+        dff = df[df["Date"] >= df["Date"].max() - pd.Timedelta(days=30)]
     elif date_filter == "Last 3 Months":
-        dff = df[df["date"] >= df["date"].max() - pd.Timedelta(days=90)]
+        dff = df[df["Date"] >= df["Date"].max() - pd.Timedelta(days=90)]
 
-    promo_lift = ((dff[dff['promotion']==1]['Revenue'].mean() /
-                   dff[dff['promotion']==0]['Revenue'].mean()) - 1) * 100
+    promo_lift = ((dff[dff['Promotion']==1]['Revenue'].mean() /
+                   dff[dff['Promotion']==0]['Revenue'].mean()) - 1) * 100
 
     st.markdown("<div class='section-header'>Key Performance Indicators</div>", unsafe_allow_html=True)
     kpi_row([
         ("Total Revenue",      fmt_money(dff["Revenue"].sum()),               "12.6% vs Apr", "pos"),
-        ("Units Sold",         fmt_num(dff["units_sold"].sum()),               "8.3% vs Apr",  "pos"),
-        ("Total Demand",       fmt_num(dff["demand"].sum()),                   "9.7% vs Apr",  "pos"),
+        ("Units Sold",         fmt_num(dff["Units Sold"].sum()),               "8.3% vs Apr",  "pos"),
+        ("Total Demand",       fmt_num(dff["Demand"].sum()),                   "9.7% vs Apr",  "pos"),
         ("Inventory Value",    fmt_money(dff["Inventory Value"].sum()),        "6.5% vs Apr",  "pos"),
         ("Inv. Turnover",      f"{dff['Inventory Turnover'].mean():.2f}x",    "0.8x vs Apr",  "pos"),
         ("Stockout Rate",      fmt_pct(dff["Stockout"].mean()*100),           "0.6% vs Apr",  "neg"),
@@ -413,10 +394,10 @@ def ceo_dashboard():
     st.divider()
     st.markdown("<div class='section-header'>Business Performance Over Time</div>", unsafe_allow_html=True)
 
-    ts = dff.groupby(dff["date"].dt.to_period("M")).agg(
-        {"Revenue": "sum", "units_sold": "sum", "demand": "sum"}
+    ts = dff.groupby(dff["Date"].dt.to_period("M")).agg(
+        {"Revenue": "sum", "Units Sold": "sum", "Demand": "sum"}
     ).reset_index()
-    ts["Month"] = ts["date"].astype(str)
+    ts["Month"] = ts["Date"].astype(str)
 
     # Revenue forecast curve
     rev_fc, rev_lo, rev_hi = make_forecast_curve(ts["Revenue"], periods=3)
@@ -442,12 +423,12 @@ def ceo_dashboard():
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        dem_fc, dem_lo, dem_hi = make_forecast_curve(ts["demand"], periods=3)
-        sold_fc, _, _ = make_forecast_curve(ts["units_sold"], periods=3)
+        dem_fc, dem_lo, dem_hi = make_forecast_curve(ts["Demand"], periods=3)
+        sold_fc, _, _ = make_forecast_curve(ts["Units Sold"], periods=3)
         fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(x=ts["Month"], y=ts["demand"], name="Demand",
+        fig2.add_trace(go.Scatter(x=ts["Month"], y=ts["Demand"], name="Demand",
                                    line=dict(color="#4EAEFF", width=2.5)))
-        fig2.add_trace(go.Scatter(x=ts["Month"], y=ts["units_sold"], name="Units Sold",
+        fig2.add_trace(go.Scatter(x=ts["Month"], y=ts["Units Sold"], name="Units Sold",
                                    line=dict(color="#00C48C", width=2.5)))
         fig2.add_trace(go.Scatter(x=fc_months, y=dem_fc, name="Demand Forecast",
                                    line=dict(color="#7DD3FC", width=2, dash="dash"),
@@ -460,17 +441,17 @@ def ceo_dashboard():
 
     col3, col4 = st.columns(2)
     with col3:
-        region = dff.groupby("region")["Revenue"].sum().reset_index().sort_values("Revenue", ascending=False)
-        fig3 = px.bar(region, x="region", y="Revenue", color="region",
-                       color_discrete_sequence=PLOTLY_COLORS, text=region["Revenue"].apply(fmt_money))
+        Region = dff.groupby("Region")["Revenue"].sum().reset_index().sort_values("Revenue", ascending=False)
+        fig3 = px.bar(Region, x="Region", y="Revenue", color="Region",
+                       color_discrete_sequence=PLOTLY_COLORS, text=Region["Revenue"].apply(fmt_money))
         fig3.update_traces(textposition="outside", textfont=dict(color=FONT_CLR))
         dark_layout(fig3, "Revenue by Region", height=280)
         fig3.update_layout(showlegend=False)
         st.plotly_chart(fig3, use_container_width=True)
 
     with col4:
-        cat = dff.groupby("category")["Revenue"].sum().reset_index()
-        fig4 = px.treemap(cat, path=["category"], values="Revenue",
+        cat = dff.groupby("Category")["Revenue"].sum().reset_index()
+        fig4 = px.treemap(cat, path=["Category"], values="Revenue",
                            color="Revenue", color_continuous_scale=["#312E81", "#6C63FF"])
         fig4.update_traces(textfont=dict(color="#F1F5F9", size=12))
         fig4.update_layout(paper_bgcolor=PAPER_BG, margin=dict(l=10,r=10,t=40,b=10),
@@ -484,8 +465,8 @@ def ceo_dashboard():
 
     col5, col6, col7 = st.columns(3)
     with col5:
-        promo = dff.groupby("promotion")["Revenue"].mean().reset_index()
-        promo["Label"] = promo["promotion"].map({0: "No Promo", 1: "With Promo"})
+        promo = dff.groupby("Promotion")["Revenue"].mean().reset_index()
+        promo["Label"] = promo["Promotion"].map({0: "No Promo", 1: "With Promo"})
         lift_vals = [0, round(promo_lift, 1)]
         fig5 = go.Figure(go.Bar(
             x=promo["Label"], y=lift_vals,
@@ -499,9 +480,9 @@ def ceo_dashboard():
 
     with col6:
         ep_m = dff.copy()
-        ep_m["Month"] = ep_m["date"].dt.to_period("M").astype(str)
-        ep = ep_m.groupby(["Month", "epidemic"])["Revenue"].sum().reset_index()
-        ep["Status"] = ep["epidemic"].map({0: "Normal", 1: "Epidemic Period"})
+        ep_m["Month"] = ep_m["Date"].dt.to_period("M").astype(str)
+        ep = ep_m.groupby(["Month", "Epidemic"])["Revenue"].sum().reset_index()
+        ep["Status"] = ep["Epidemic"].map({0: "Normal", 1: "Epidemic Period"})
         fig6 = px.line(ep, x="Month", y="Revenue", color="Status",
                         color_discrete_map={"Normal": "#00C48C", "Epidemic Period": "#FF4C61"})
         fig6.update_traces(line=dict(width=2.5))
@@ -530,11 +511,11 @@ def ceo_dashboard():
 
     col8, col9 = st.columns(2)
     with col8:
-        weather = dff.groupby("weather_condition")["Revenue"].mean().reset_index()
+        weather = dff.groupby("Weather Condition")["Revenue"].mean().reset_index()
         avg = dff["Revenue"].mean()
         weather["Impact (%)"] = (weather["Revenue"] / avg - 1) * 100
         fig8 = go.Figure(go.Bar(
-            x=weather["weather_condition"],
+            x=weather["Weather Condition"],
             y=weather["Impact (%)"],
             marker_color=["#00C48C" if v >= 0 else "#FF4C61" for v in weather["Impact (%)"]],
             text=[f"{v:.1f}%" for v in weather["Impact (%)"]],
@@ -545,9 +526,9 @@ def ceo_dashboard():
         st.plotly_chart(fig8, use_container_width=True)
 
     with col9:
-        season = dff.groupby("seasonality")["Revenue"].sum().reset_index()
+        season = dff.groupby("Seasonality")["Revenue"].sum().reset_index()
         fig9 = go.Figure(go.Bar(
-            x=season["seasonality"], y=season["Revenue"],
+            x=season["Seasonality"], y=season["Revenue"],
             marker_color=PLOTLY_COLORS[:4],
             text=season["Revenue"].apply(fmt_money),
             textposition="outside", textfont=dict(color=FONT_CLR)
@@ -558,13 +539,13 @@ def ceo_dashboard():
 
     st.divider()
     st.markdown("<div class='section-header'>AI Executive Insights</div>", unsafe_allow_html=True)
-    top_region = dff.groupby("region")["Revenue"].sum().idxmax()
-    top_cat = dff.groupby("category")["Revenue"].sum().idxmax()
+    top_region = dff.groupby("Region")["Revenue"].sum().idxmax()
+    top_cat = dff.groupby("Category")["Revenue"].sum().idxmax()
     for icon, text in [
-        ("🟢", f"{top_region} region leads revenue — reinforce marketing to amplify this advantage."),
-        ("🔵", f"{top_cat} has the highest revenue share. Prepare inventory ahead of peak demand cycles."),
-        ("🟣", f"Promotions generate +{promo_lift:.1f}% additional revenue. Scaling promotion frequency could significantly boost monthly totals."),
-        ("🔴", f"Stockout risk at {dff['Stockout'].mean()*100:.1f}% — {fmt_num(dff['Stockout'].sum())} SKU-hours at risk. Prioritize reorder for top-demand products."),
+        ("🟢", f"{top_region} Region leads revenue — reinforce marketing to amplify this advantage."),
+        ("🔵", f"{top_cat} has the highest revenue share. Prepare inventory ahead of peak Demand cycles."),
+        ("🟣", f"Ps generate +{promo_lift:.1f}% additional revenue. Scaling Promotion frequency could significantly boost monthly totals."),
+        ("🔴", f"Stockout risk at {dff['Stockout'].mean()*100:.1f}% — {fmt_num(dff['Stockout'].sum())} SKU-hours at risk. Prioritize reorder for top-Demand products."),
     ]:
         st.markdown(f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>', unsafe_allow_html=True)
 
@@ -589,9 +570,9 @@ def warehouse_dashboard():
 
     dff = df.copy()
     if date_filter == "Last Month":
-        dff = df[df["date"] >= df["date"].max() - pd.Timedelta(days=30)]
+        dff = df[df["Date"] >= df["Date"].max() - pd.Timedelta(days=30)]
     elif date_filter == "Last 3 Months":
-        dff = df[df["date"] >= df["date"].max() - pd.Timedelta(days=90)]
+        dff = df[df["Date"] >= df["Date"].max() - pd.Timedelta(days=90)]
 
     st.markdown("<div class='section-header'>Inventory Key Metrics</div>", unsafe_allow_html=True)
     kpi_row([
@@ -608,23 +589,23 @@ def warehouse_dashboard():
 
     col1, col2 = st.columns(2)
     with col1:
-        inv = dff.groupby("category").agg(
+        inv = dff.groupby("Category").agg(
             Overstock=("Overstock", "sum"),
             Stockout=("Stockout", "sum"),
-            Total=("inventory_level", "count")
+            Total=("Inventory Level", "count")
         ).reset_index()
         inv["Optimal"] = inv["Total"] - inv["Overstock"] - inv["Stockout"]
         fig1 = go.Figure()
-        fig1.add_trace(go.Bar(name="Overstock",   x=inv["category"], y=inv["Overstock"],  marker_color="#FF8C42"))
-        fig1.add_trace(go.Bar(name="Optimal",     x=inv["category"], y=inv["Optimal"],    marker_color="#00C48C"))
-        fig1.add_trace(go.Bar(name="Understock",  x=inv["category"], y=inv["Stockout"],   marker_color="#FF4C61"))
+        fig1.add_trace(go.Bar(name="Overstock",   x=inv["Category"], y=inv["Overstock"],  marker_color="#FF8C42"))
+        fig1.add_trace(go.Bar(name="Optimal",     x=inv["Category"], y=inv["Optimal"],    marker_color="#00C48C"))
+        fig1.add_trace(go.Bar(name="Understock",  x=inv["Category"], y=inv["Stockout"],   marker_color="#FF4C61"))
         fig1.update_layout(barmode="stack")
         dark_layout(fig1, "Current Inventory Status by Category", height=300, legend_h=True)
         st.plotly_chart(fig1, use_container_width=True)
 
     with col2:
-        inv_ts = dff.groupby(dff["date"].dt.to_period("M"))["Inventory Value"].sum().reset_index()
-        inv_ts["Month"] = inv_ts["date"].astype(str)
+        inv_ts = dff.groupby(dff["Date"].dt.to_period("M"))["Inventory Value"].sum().reset_index()
+        inv_ts["Month"] = inv_ts["Date"].astype(str)
         fc, lo, hi = make_forecast_curve(inv_ts["Inventory Value"], periods=3)
         fc_months = [f"FC+{i+1}" for i in range(3)]
         fig2 = go.Figure()
@@ -647,10 +628,10 @@ def warehouse_dashboard():
     col3, col4 = st.columns(2)
     with col3:
         st.markdown("#### 🚨 Reorder Alerts")
-        at_risk = dff[dff["Stockout"]].groupby("product_id").agg(
-            Current_Stock=("inventory_level", "mean"),
-            Proj_Demand=("demand", "mean"),
-            Suggested_Order=("units_ordered", "mean")
+        at_risk = dff[dff["Stockout"]].groupby("Product ID").agg(
+            Current_Stock=("Inventory Level", "mean"),
+            Proj_Demand=("Demand", "mean"),
+            Suggested_Order=("Units Ordered", "mean")
         ).reset_index().nlargest(10, "Proj_Demand").round(0)
         at_risk["Risk"] = at_risk.apply(
             lambda r: "🔴 High" if r["Current_Stock"] < r["Proj_Demand"] * 0.3
@@ -660,7 +641,7 @@ def warehouse_dashboard():
 
     with col4:
         st.markdown("#### 📅 Stockout Forecast (Next 7 Days)")
-        prods = dff[dff["Stockout"]]["product_id"].value_counts().head(6).index.tolist()
+        prods = dff[dff["Stockout"]]["Product ID"].value_counts().head(6).index.tolist()
         so_days = np.random.default_rng(7).integers(1, 8, len(prods))
         so_df = pd.DataFrame({"Product": prods, "Days Until Stockout": so_days}).sort_values("Days Until Stockout")
         colors_so = ["#FF4C61" if d <= 2 else "#FF8C42" if d <= 4 else "#00C48C" for d in so_df["Days Until Stockout"]]
@@ -683,30 +664,30 @@ def warehouse_dashboard():
     col5, col6, col7, col8 = st.columns(4)
     with col5:
         st.markdown("#### 🚀 Fast Movers (Top 5)")
-        fast = dff.groupby("product_id")["units_sold"].sum().nlargest(5).reset_index()
-        fig5 = go.Figure(go.Bar(x=fast["units_sold"], y=fast["product_id"], orientation='h',
+        fast = dff.groupby("Product ID")["Units Sold"].sum().nlargest(5).reset_index()
+        fig5 = go.Figure(go.Bar(x=fast["Units Sold"], y=fast["Product ID"], orientation='h',
                                  marker_color="#6C63FF",
-                                 text=fast["units_sold"].apply(fmt_num),
+                                 text=fast["Units Sold"].apply(fmt_num),
                                  textposition="outside", textfont=dict(color=FONT_CLR)))
         dark_layout(fig5, "", height=260)
         st.plotly_chart(fig5, use_container_width=True)
 
     with col6:
         st.markdown("#### 🐢 Slow Movers (Top 5)")
-        slow = dff.groupby("product_id")["units_sold"].sum().nsmallest(5).reset_index()
-        fig6 = go.Figure(go.Bar(x=slow["units_sold"], y=slow["product_id"], orientation='h',
+        slow = dff.groupby("Product ID")["Units Sold"].sum().nsmallest(5).reset_index()
+        fig6 = go.Figure(go.Bar(x=slow["Units Sold"], y=slow["Product ID"], orientation='h',
                                  marker_color="#FF8C42",
-                                 text=slow["units_sold"].apply(fmt_num),
+                                 text=slow["Units Sold"].apply(fmt_num),
                                  textposition="outside", textfont=dict(color=FONT_CLR)))
         dark_layout(fig6, "", height=260)
         st.plotly_chart(fig6, use_container_width=True)
 
     with col7:
         st.markdown("#### 📦 Overstock Analysis")
-        co = dff.groupby("category").agg(Inventory=("inventory_level", "mean"), Demand=("demand", "mean")).reset_index()
+        co = dff.groupby("Category").agg(Inventory=("Inventory Level", "mean"), Demand=("Demand", "mean")).reset_index()
         co["Overstock %"] = ((co["Inventory"] / co["Demand"]) - 1) * 100
         fig7 = go.Figure(go.Bar(
-            x=co["Overstock %"], y=co["category"], orientation="h",
+            x=co["Overstock %"], y=co["Category"], orientation="h",
             marker_color=["#FF4C61" if x > 100 else "#FF8C42" if x > 50 else "#00C48C" for x in co["Overstock %"]],
             text=[f"{x:.0f}%" for x in co["Overstock %"]],
             textposition="outside", textfont=dict(color=FONT_CLR)
@@ -737,12 +718,12 @@ def warehouse_dashboard():
 
     st.divider()
     st.markdown("<div class='section-header'>AI Inventory Insights</div>", unsafe_allow_html=True)
-    most_ov = dff.groupby("category")["inventory_level"].mean().idxmax()
+    most_ov = dff.groupby("Category")["Inventory Level"].mean().idxmax()
     for icon, text in [
-        ("📦", f"Product {dff[dff['Stockout']]['product_id'].value_counts().index[0]} likely to stock out in 3–5 days. Place a reorder of ~500 units immediately."),
-        ("⚠️", f"{most_ov} is overstocked by ~18%. Consider a clearance promotion to reduce holding costs."),
+        ("📦", f"Product {dff[dff['Stockout']]['Product ID'].value_counts().index[0]} likely to stock out in 3–5 days. Place a reorder of ~500 units immediately."),
+        ("⚠️", f"{most_ov} is overstocked by ~18%. Consider a clearance Promotion to reduce holding costs."),
         ("🔄", f"Avg inventory coverage is {dff['Coverage Days'].mean():.1f} days. Target 30–45 days for optimal working capital."),
-        ("📉", f"Lost demand of {fmt_num(dff['Lost Demand'].sum())} units → estimated missed revenue of {fmt_money(dff['Lost Demand'].sum() * dff['price'].mean())}."),
+        ("📉", f"Lost Demand of {fmt_num(dff['Lost Demand'].sum())} units → estimated missed revenue of {fmt_money(dff['Lost Demand'].sum() * dff['Price'].mean())}."),
     ]:
         st.markdown(f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>', unsafe_allow_html=True)
 
@@ -762,28 +743,28 @@ def branch_dashboard():
         st.markdown("<h1 style='font-size:22px;'>🏬 Branch Manager Dashboard</h1>", unsafe_allow_html=True)
         st.caption("Store Performance & Operations Overview")
     with sc:
-        store = st.selectbox("Select Store", sorted(df["store_id"].unique()), key="branch_store")
+        store = st.selectbox("Select Store", sorted(df["Store ID"].unique()), key="branch_store")
     with dc:
         date_filter = st.selectbox("Period", ["All Time", "Last 30 Days", "Last 7 Days"],
                                     label_visibility="collapsed", key="br_period")
 
-    d = df[df["store_id"] == store].copy()
+    d = df[df["Store ID"] == store].copy()
     if date_filter == "Last 7 Days":
-        d = d[d["date"] >= d["date"].max() - pd.Timedelta(days=7)]
+        d = d[d["Date"] >= d["Date"].max() - pd.Timedelta(days=7)]
     elif date_filter == "Last 30 Days":
-        d = d[d["date"] >= d["date"].max() - pd.Timedelta(days=30)]
+        d = d[d["Date"] >= d["Date"].max() - pd.Timedelta(days=30)]
 
-    promo_lift_br = ((d[d['promotion']==1]['Revenue'].mean() /
-                       max(d[d['promotion']==0]['Revenue'].mean(), 1)) - 1) * 100
+    promo_lift_br = ((d[d['Promotion']==1]['Revenue'].mean() /
+                       max(d[d['Promotion']==0]['Revenue'].mean(), 1)) - 1) * 100
 
     st.markdown("<div class='section-header'>Store Performance Metrics</div>", unsafe_allow_html=True)
     kpi_row([
         ("Store Revenue",      fmt_money(d["Revenue"].sum()),                       "9.6% vs Yesterday",  "pos"),
-        ("Units Sold",         fmt_num(d["units_sold"].sum()),                       "13.2% vs Last Wk",  "pos"),
+        ("Units Sold",         fmt_num(d["Units Sold"].sum()),                       "13.2% vs Last Wk",  "pos"),
         ("Inventory Value",    fmt_money(d["Inventory Value"].sum()),               "4.5% vs Last Wk",   "pos"),
         ("Promo Impact",       f"+{promo_lift_br:.1f}%",                             "vs No Promotion",   "pos"),
-        ("Demand Forecast 7D", fmt_num(d["demand"].sum()),                           "6.7% vs Curr Wk",  "pos"),
-        ("Lost Sales (SO)",    fmt_money(d["Lost Demand"].sum() * d["price"].mean()), "8.4% vs Last Wk",  "pos"),
+        ("Demand Forecast 7D", fmt_num(d["Demand"].sum()),                           "6.7% vs Curr Wk",  "pos"),
+        ("Lost Sales (SO)",    fmt_money(d["Lost Demand"].sum() * d["Price"].mean()), "8.4% vs Last Wk",  "pos"),
     ])
 
     st.divider()
@@ -791,7 +772,7 @@ def branch_dashboard():
 
     col1, col2 = st.columns(2)
     with col1:
-        ts = d.groupby(d["date"].dt.date)["Revenue"].sum().reset_index()
+        ts = d.groupby(d["Date"].dt.Date)["Revenue"].sum().reset_index()
         ts.columns = ["Date", "Revenue"]
         ts["DateStr"] = ts["Date"].astype(str)
         fc, lo, hi = make_forecast_curve(ts["Revenue"], periods=7)
@@ -813,10 +794,10 @@ def branch_dashboard():
         st.plotly_chart(fig1, use_container_width=True)
 
     with col2:
-        cat_sales = d.groupby("category")["Revenue"].sum().reset_index()
+        cat_sales = d.groupby("Category")["Revenue"].sum().reset_index()
         total_cat = cat_sales["Revenue"].sum()
         fig2 = go.Figure(data=[go.Pie(
-            labels=cat_sales["category"], values=cat_sales["Revenue"],
+            labels=cat_sales["Category"], values=cat_sales["Revenue"],
             hole=0.55, marker_colors=PLOTLY_COLORS,
             textinfo="label+percent", textfont=dict(color="#E2E8F0", size=11)
         )])
@@ -832,9 +813,9 @@ def branch_dashboard():
 
     col3, col4, col5 = st.columns(3)
     with col3:
-        promo_perf = d.groupby(["category", "promotion"])["Revenue"].mean().reset_index()
-        promo_perf["Type"] = promo_perf["promotion"].map({0: "No Promotion", 1: "With Promotion"})
-        fig3 = px.bar(promo_perf, x="category", y="Revenue", color="Type", barmode="group",
+        promo_perf = d.groupby(["Category", "Promotion"])["Revenue"].mean().reset_index()
+        promo_perf["Type"] = promo_perf["Promotion"].map({0: "No Promotion", 1: "With Promotion"})
+        fig3 = px.bar(promo_perf, x="Category", y="Revenue", color="Type", barmode="group",
                        color_discrete_map={"No Promotion": "#374151", "With Promotion": "#6C63FF"})
         dark_layout(fig3, "Promotion Performance by Category", height=280, legend_h=True)
         fig3.update_xaxes(tickangle=-20)
@@ -842,7 +823,7 @@ def branch_dashboard():
 
     with col4:
         # Demand forecast curve
-        d_daily = d.groupby(d["date"].dt.date)["demand"].sum().reset_index()
+        d_daily = d.groupby(d["Date"].dt.Date)["Demand"].sum().reset_index()
         d_daily.columns = ["Date", "Demand"]
         fc_d, lo_d, hi_d = make_forecast_curve(d_daily["Demand"], periods=7)
         hist_dates = [str(x) for x in d_daily["Date"].tail(14)]
@@ -866,15 +847,15 @@ def branch_dashboard():
         st.plotly_chart(fig4, use_container_width=True)
 
     with col5:
-        d_ts = d.groupby(d["date"].dt.to_period("D")).agg(
-            {"Inventory Value": "mean", "demand": "sum"}
+        d_ts = d.groupby(d["Date"].dt.to_period("D")).agg(
+            {"Inventory Value": "mean", "Demand": "sum"}
         ).reset_index()
-        d_ts["Day"] = d_ts["date"].astype(str)
+        d_ts["Day"] = d_ts["Date"].astype(str)
         d_ts = d_ts.tail(14)
         fig5 = go.Figure()
         fig5.add_trace(go.Scatter(x=d_ts["Day"], y=d_ts["Inventory Value"],
                                    name="Inventory Value", line=dict(color="#00C48C", width=2)))
-        fig5.add_trace(go.Scatter(x=d_ts["Day"], y=d_ts["demand"] * d["price"].mean(),
+        fig5.add_trace(go.Scatter(x=d_ts["Day"], y=d_ts["Demand"] * d["Price"].mean(),
                                    name="Demand Value", line=dict(color="#FF8C42", width=2, dash="dot")))
         dark_layout(fig5, "Inventory vs Demand Value", height=280, legend_h=True)
         fig5.update_xaxes(tickangle=-30)
@@ -886,31 +867,31 @@ def branch_dashboard():
     col6, col7, col8 = st.columns(3)
     with col6:
         st.markdown("#### 🏆 Top Selling Products")
-        top = d.groupby("product_id")["units_sold"].sum().nlargest(8).reset_index()
-        fig6 = go.Figure(go.Bar(x=top["units_sold"], y=top["product_id"], orientation='h',
+        top = d.groupby("Product ID")["Units Sold"].sum().nlargest(8).reset_index()
+        fig6 = go.Figure(go.Bar(x=top["Units Sold"], y=top["Product ID"], orientation='h',
                                  marker_color="#6C63FF",
-                                 text=top["units_sold"].apply(fmt_num),
+                                 text=top["Units Sold"].apply(fmt_num),
                                  textposition="outside", textfont=dict(color=FONT_CLR)))
         dark_layout(fig6, "", height=310)
         st.plotly_chart(fig6, use_container_width=True)
 
     with col7:
         st.markdown("#### ⚠️ Low Stock Alerts")
-        ls = d[d["Stockout"]][["product_id", "inventory_level", "demand"]].copy()
-        ls["Days Left"] = (ls["inventory_level"] / np.maximum(ls["demand"], 1)).round(1)
+        ls = d[d["Stockout"]][["Product ID", "Inventory Level", "Demand"]].copy()
+        ls["Days Left"] = (ls["Inventory Level"] / np.maximum(ls["Demand"], 1)).round(1)
         ls["Status"] = ls["Days Left"].apply(
             lambda x: "🔴 Critical" if x < 2 else "🟡 Warning" if x < 5 else "🟢 OK")
-        ls = ls.rename(columns={"product_id": "Product", "inventory_level": "Stock", "demand": "Min Level"}).head(8)
+        ls = ls.rename(columns={"Product ID": "Product", "Inventory Level": "Stock", "Demand": "Min Level"}).head(8)
         st.dataframe(ls, use_container_width=True, height=310)
 
     with col8:
         st.markdown("#### 🌦 Weather Impact Analysis")
-        wd = d.groupby("weather_condition").agg(Revenue=("Revenue", "sum"), Units=("units_sold", "sum")).reset_index()
+        wd = d.groupby("Weather Condition").agg(Revenue=("Revenue", "sum"), Units=("Units Sold", "sum")).reset_index()
         fig8 = go.Figure()
         fig8.add_trace(go.Scatter(
             x=wd["Revenue"], y=wd["Units"],
             mode="markers+text",
-            text=wd["weather_condition"],
+            text=wd["Weather Condition"],
             textposition="top center",
             marker=dict(size=18, color=PLOTLY_COLORS[:len(wd)],
                          line=dict(width=1, color="rgba(255,255,255,0.3)")),
@@ -923,14 +904,14 @@ def branch_dashboard():
 
     st.divider()
     st.markdown("<div class='section-header'>AI Store Recommendations</div>", unsafe_allow_html=True)
-    top_cat_s = d.groupby("category")["Revenue"].sum().idxmax()
-    low_cat_s = d.groupby("category")["Revenue"].sum().idxmin()
-    top_wx = d.groupby("weather_condition")["Revenue"].mean().idxmax()
+    top_cat_s = d.groupby("Category")["Revenue"].sum().idxmax()
+    low_cat_s = d.groupby("Category")["Revenue"].sum().idxmin()
+    top_wx = d.groupby("Weather Condition")["Revenue"].mean().idxmax()
     for icon, text in [
         ("📈", f"Demand for {top_cat_s} is trending up at Store {store}. Ensure stock is 20-30% above forecast for the next 2 weeks."),
         ("📦", f"{top_wx} conditions correlate with higher beverage sales. Pre-stock cold drinks and snacks before forecasted warm spells."),
-        ("🏷️", f"Promotions on {low_cat_s} drove +{promo_lift_br:.1f}% sales lift. Run targeted discounts to clear slow-moving stock."),
-        ("🚨", f"{d[d['Stockout']].shape[0]} stockout events this period. Estimated lost revenue: {fmt_money(d['Lost Demand'].sum() * d['price'].mean())}."),
+        ("🏷️", f"Ps on {low_cat_s} drove +{promo_lift_br:.1f}% sales lift. Run targeted Discounts to clear slow-moving stock."),
+        ("🚨", f"{d[d['Stockout']].shape[0]} stockout events this period. Estimated lost revenue: {fmt_money(d['Lost Demand'].sum() * d['Price'].mean())}."),
     ]:
         st.markdown(f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>', unsafe_allow_html=True)
 
