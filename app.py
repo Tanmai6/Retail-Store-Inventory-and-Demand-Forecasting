@@ -4,7 +4,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
-
+from orchestrator import handle_query
 # -----------------------
 # PAGE CONFIG
 # -----------------------
@@ -13,23 +13,64 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 # -----------------------
 # DATA
 # -----------------------
-df = pd.read_excel('data/sales_data.xls')
+@st.cache_data(ttl=600)
+def load_retail_data():
+    # 1. Connect to the SQLite database
+    conn = st.connection("my_retail_db", type="sql", url="sqlite:///retail_analytics.db")
+    # 2. Query the normalized tables and flatten them
+    query = """
+        SELECT 
+            d.record_date AS date, d.store_id, d.product_id, p.category, s.region,
+            d.inventory_level, d.units_sold, d.units_ordered, d.price, d.discount,
+            d.weather_condition, d.promotion, d.competitor_pricing, d.seasonality,
+            d.epidemic, d.demand
+        FROM Daily_Operations_Log d
+        JOIN Store_Products p ON d.store_id = p.store_id AND d.product_id = p.product_id
+        JOIN Stores s ON d.store_id = s.store_id
+        WHERE s.location_type = 'Retail_Branch';
+    """
+    df = conn.query(query)
+    df['date'] = pd.to_datetime(df['date'])
+    
+    # 3. Rename columns to perfectly match your existing Plotly charting code
+   # 3. Rename columns to perfectly match your existing Plotly charting code
+    df.rename(columns={
+        "date": "Date", 
+        "store_id": "Store ID", 
+        "product_id": "Product ID",
+        "category": "Category", 
+        "region": "Region", 
+        "inventory_level": "Inventory Level",
+        "units_sold": "Units Sold", 
+        "units_ordered": "Units Ordered",  # <-- THIS IS THE MISSING PIECE!
+        "demand": "Demand", 
+        "price": "Price",
+        "promotion": "Promotion", 
+        "epidemic": "Epidemic", 
+        "weather_condition": "Weather Condition",
+        "seasonality": "Seasonality", 
+        "competitor_pricing": "Competitor Pricing",
+        "discount": "Discount"
+    }, inplace=True)
+    
+    # 4. Recalculate derived metrics
+    df["Revenue"] = df["Units Sold"] * df["Price"] * (1 - (df["Discount"] / 100))
+    df["Inventory Value"] = df["Inventory Level"] * df["Price"]
+    df["Lost Demand"] = np.maximum(df["Demand"] - df["Units Sold"], 0)
+    df["Stockout"] = df["Inventory Level"] < df["Demand"]
+    df["Overstock"] = df["Inventory Level"] > (2 * df["Demand"])
+    df["Sell Through Rate"] = df["Units Sold"] / np.maximum(df["Inventory Level"], 1)
+    df["Inventory Turnover"] = df["Units Sold"] / np.maximum(df["Inventory Level"], 1)
+    df["Coverage Days"] = df["Inventory Level"] / np.maximum(df["Demand"], 1)
+    df["Price Gap"] = df["Price"] - df["Competitor Pricing"]
+    df["Gross Profit (Proxy)"] = df["Revenue"] - (df["Units Sold"] * df["Price"] * 0.4)
+    
+    return df
 
-df["Revenue"] = df["Units Sold"] * df["Price"] * (1 - (df["Discount"] / 100))
-df["Inventory Value"] = df["Inventory Level"] * df["Price"]
-df["Lost Demand"] = np.maximum(df["Demand"] - df["Units Sold"], 0)
-df["Stockout"] = df["Inventory Level"] < df["Demand"]
-df["Overstock"] = df["Inventory Level"] > (2 * df["Demand"])
-df["Sell Through Rate"] = df["Units Sold"] / np.maximum(df["Inventory Level"], 1)
-df["Inventory Turnover"] = df["Units Sold"] / np.maximum(df["Inventory Level"], 1)
-df["Coverage Days"] = df["Inventory Level"] / np.maximum(df["Demand"], 1)
-df["Price Gap"] = df["Price"] - df["Competitor Pricing"]
-df["Gross Profit (Proxy)"] = df["Revenue"] - (df["Units Sold"] * df["Price"] * 0.4)
-
+df = load_retail_data()
 # -----------------------
 # HELPERS
 # -----------------------
@@ -99,71 +140,6 @@ def kpi_row(items):
     st.markdown(f'<div class="kpi-grid">{cards}</div>', unsafe_allow_html=True)
 
 
-# -----------------------
-# DATA CONTEXT FOR AI
-# -----------------------
-def get_data_context():
-    revenue = df["Revenue"].sum()
-    profit = df["Gross Profit (Proxy)"].sum()
-    stockout = df["Stockout"].mean() * 100
-    overstock = df["Overstock"].mean() * 100
-    top_cat = df.groupby("Category")["Revenue"].sum().idxmax()
-    top_region = df.groupby("Region")["Revenue"].sum().idxmax()
-    lost = df["Lost Demand"].sum()
-    inv_val = df["Inventory Value"].sum()
-    inv_turnover = df["Inventory Turnover"].mean()
-    coverage = df["Coverage Days"].mean()
-    promo_lift = ((df[df['Promotion']==1]['Revenue'].mean() / df[df['Promotion']==0]['Revenue'].mean()) - 1)*100
-
-    return f"""You are an expert AI retail analytics assistant embedded in a Retail Analytics Dashboard.
-Current data summary:
-
-BUSINESS PERFORMANCE:
-- Total Revenue: {fmt_money(revenue)}
-- Estimated Gross Profit: {fmt_money(profit)}
-- Total Units Sold: {fmt_num(df['Units Sold'].sum())}
-- Total Demand: {fmt_num(df['Demand'].sum())}
-- Lost/Unmet Demand: {fmt_num(lost)} units
-
-INVENTORY HEALTH:
-- Total Inventory Value: {fmt_money(inv_val)}
-- Stockout Risk: {stockout:.1f}%
-- Overstock Risk: {overstock:.1f}%
-- Avg Inventory Turnover: {inv_turnover:.2f}x
-- Avg Coverage Days: {coverage:.1f} days
-
-TOP PERFORMERS:
-- Highest Revenue Category: {top_cat}
-- Highest Revenue Region: {top_region}
-- Top Store by Revenue: {df.groupby('Store ID')['Revenue'].sum().idxmax()}
-
-PS:
-- Promotion Revenue Lift: +{promo_lift:.1f}% vs no Promotion
-- Epidemic records: {df['Epidemic'].mean()*100:.1f}% of data
-
-SCOPE: Electronics/Groceries/Fashion/Home/Beauty | North/South/East/West | S1-S20 stores | P1-P100 products | Jan 2025, 5000 hourly records.
-
-Answer concisely with specific numbers. Give actionable recommendations when relevant."""
-
-
-def call_claude_api(messages):
-    try:
-        response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 1000,
-                "system": get_data_context(),
-                "messages": messages
-            },
-            timeout=30
-        )
-        data = response.json()
-        return data["content"][0]["text"]
-    except Exception as e:
-        return f"⚠️ AI unavailable: {str(e)}"
-
 
 # -----------------------
 # AI PANEL  — page_key ensures unique widget keys per dashboard page
@@ -204,7 +180,7 @@ def ai_assistant_panel(page_key="global"):
             if st.button(prompt, key=btn_key):
                 history.append({"role": "user", "content": prompt})
                 with st.spinner("Thinking..."):
-                    reply = call_claude_api([{"role": m["role"], "content": m["content"]} for m in history])
+                    reply = handle_query(prompt)
                 history.append({"role": "assistant", "content": reply})
                 st.session_state[history_key] = history
                 st.rerun()
@@ -217,7 +193,7 @@ def ai_assistant_panel(page_key="global"):
         if submitted and user_input.strip():
             history.append({"role": "user", "content": user_input})
             with st.spinner("Thinking..."):
-                reply = call_claude_api([{"role": m["role"], "content": m["content"]} for m in history])
+                reply = reply = handle_query(user_input)
             history.append({"role": "assistant", "content": reply})
             st.session_state[history_key] = history
             st.rerun()
@@ -285,12 +261,20 @@ def home():
     <p style='color:#475569;font-size:13px;margin-bottom:16px;'>Actionable insights · Smarter decisions · Stronger retail performance</p>
     """, unsafe_allow_html=True)
 
+   # -----------------------
+    # HYBRID KPI LOGIC
+    # -----------------------
+    # 1. Get the current day snapshot for inventory metrics
+    latest_date = df['Date'].max()
+    current_day_df = df[df['Date'] == latest_date]
+
+    # 2. Mix all-time data (df) with current data (current_day_df)
     kpi_row([
         ("Total Revenue", fmt_money(df["Revenue"].sum()), "12.6% vs Apr", "pos"),
         ("Total Units Sold", fmt_num(df["Units Sold"].sum()), "8.3% vs Apr", "pos"),
-        ("Inventory Value", fmt_money(df["Inventory Value"].sum()), "6.5% vs Apr", "pos"),
-        ("Stockout Risk", fmt_pct(df["Stockout"].mean()*100), "0.6% vs Apr", "neg"),
-        ("Overstock Risk", fmt_pct(df["Overstock"].mean()*100), "1.3% vs Apr", "neg"),
+        ("Current Inventory Value", fmt_money(current_day_df["Inventory Value"].sum()), "6.5% vs Apr", "pos"),
+        ("Active Stockout Warnings", fmt_pct(current_day_df["Stockout"].mean()*100), "0.6% vs Apr", "neg"),
+        ("Overstock Risk", fmt_pct(current_day_df["Overstock"].mean()*100), "1.3% vs Apr", "neg"),
     ])
 
     st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
