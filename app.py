@@ -17,7 +17,7 @@ st.set_page_config(
 # -----------------------
 # DATA
 # -----------------------
-df = pd.read_excel('data/sales_data.xls')
+df = pd.read_excel('data/sales_data.xlsx')
 
 df["Revenue"] = df["Units Sold"] * df["Price"] * (1 - (df["Discount"] / 100))
 df["Inventory Value"] = df["Inventory Level"] * df["Price"]
