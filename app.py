@@ -17,8 +17,6 @@ st.set_page_config(
 # -----------------------
 # DATA
 # -----------------------
-n = 5000
-
 df = pd.read_excel('data/sales_data.xls')
 
 df["Revenue"] = df["Units Sold"] * df["Price"] * (1 - (df["Discount"] / 100))
@@ -772,7 +770,7 @@ def branch_dashboard():
 
     col1, col2 = st.columns(2)
     with col1:
-        ts = d.groupby(d["Date"].dt.Date)["Revenue"].sum().reset_index()
+        ts = d.groupby(d["Date"].dt.date)["Revenue"].sum().reset_index()
         ts.columns = ["Date", "Revenue"]
         ts["DateStr"] = ts["Date"].astype(str)
         fc, lo, hi = make_forecast_curve(ts["Revenue"], periods=7)
@@ -823,7 +821,7 @@ def branch_dashboard():
 
     with col4:
         # Demand forecast curve
-        d_daily = d.groupby(d["Date"].dt.Date)["Demand"].sum().reset_index()
+        d_daily = d.groupby(d["Date"].dt.date)["Demand"].sum().reset_index()
         d_daily.columns = ["Date", "Demand"]
         fc_d, lo_d, hi_d = make_forecast_curve(d_daily["Demand"], periods=7)
         hist_dates = [str(x) for x in d_daily["Date"].tail(14)]
