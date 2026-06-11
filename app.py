@@ -17,33 +17,23 @@ st.set_page_config(
 # -----------------------
 # DATA
 # -----------------------
-df = pd.read_excel('data/sales_data.xlsx')
-
-df["Revenue"] = df["Units Sold"] * df["Price"] * (1 - (df["Discount"] / 100))
-df["Inventory Value"] = df["Inventory Level"] * df["Price"]
-df["Lost Demand"] = np.maximum(df["Demand"] - df["Units Sold"], 0)
-df["Stockout"] = df["Inventory Level"] < df["Demand"]
-df["Overstock"] = df["Inventory Level"] > (2 * df["Demand"])
-df["Sell Through Rate"] = df["Units Sold"] / np.maximum(df["Inventory Level"], 1)
-df["Inventory Turnover"] = df["Units Sold"] / np.maximum(df["Inventory Level"], 1)
-df["Coverage Days"] = df["Inventory Level"] / np.maximum(df["Demand"], 1)
-df["Price Gap"] = df["Price"] - df["Competitor Pricing"]
-df["Gross Profit (Proxy)"] = df["Revenue"] - (df["Units Sold"] * df["Price"] * 0.4)
+df = pd.read_excel('data/processed_sales_data.csv')
 
 # -----------------------
 # HELPERS
 # -----------------------
-def fmt_money(x):
+def fmt_money(x): #Converts amounts to K and M representation with dollar sign for saving space
     if x >= 1_000_000: return f"${x/1_000_000:.2f}M"
     if x >= 1_000: return f"${x/1_000:.1f}K"
     return f"${x:.0f}"
 
-def fmt_num(x):
+def fmt_num(x): #Converts K and M representations back to normal
     if x >= 1_000_000: return f"{x/1_000_000:.2f}M"
     if x >= 1_000: return f"{x/1_000:.1f}K"
     return f"{x:.0f}"
 
-def fmt_pct(x): return f"{x:.1f}%"
+def fmt_pct(x): #FOrmats number as percentage
+    return f"{x:.1f}%" 
 
 PLOTLY_COLORS = ["#6C63FF", "#00C48C", "#FF8C42", "#4EAEFF", "#FF4C61", "#A78BFA"]
 
