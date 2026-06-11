@@ -79,11 +79,6 @@ with tab1:
     fig_comp = px.scatter(df, x="competitor", y="sales", color="region", title="Competitor Index vs Sales")
     st.plotly_chart(fig_comp, use_container_width=True)
 
-    # Epidemic Impact
-    st.subheader("Epidemic Impact on Sales")
-    fig_epi = px.bar(df, x="epidemic", y="sales", color="region", title="Sales During Epidemic Flags")
-    st.plotly_chart(fig_epi, use_container_width=True)
-
     # Product-wise Inventory
     st.subheader("Product-wise Inventory Levels")
     fig_prod_inv = px.bar(df, x="product", y="inventory", color="region", title="Inventory by Product and Region")
@@ -107,8 +102,6 @@ with tab1:
     alerts = []
     if filtered_df['low_stock_pct'].mean() > 0.15:
         alerts.append("⚠️ Average low stock percentage is high.")
-    if (filtered_df['epidemic'] == 1).sum() > 0:
-        alerts.append("⚠️ Epidemic flag detected in dataset.")
     for alert in alerts:
         st.warning(alert)
 
@@ -119,7 +112,6 @@ with tab2:
     # Forecast settings (only visible in tab2)
     st.subheader("Forecast Settings")
     use_promotion = st.checkbox("Include Promotion Data", value=True)
-    use_epidemic = st.checkbox("Include Epidemic Data", value=True)
 
     # Fake forecast data (replace with forecasting.py outputs later)
     forecast_data = {
@@ -132,8 +124,6 @@ with tab2:
     factors = []
     if use_promotion:
         factors.append("Promotion")
-    if use_epidemic:
-        factors.append("Epidemic")
 
     st.write(f"Forecast generated with factors: {', '.join(factors) if factors else 'None'}")
 
