@@ -17,7 +17,8 @@ st.set_page_config(
 # -----------------------
 # DATA
 # -----------------------
-df = pd.read_excel('data/processed_sales_data.csv')
+df = pd.read_csv('data/processed_sales_data.csv')
+df["Date"] = pd.to_datetime(df["Date"], errors="coerce") #Converting dates from string to datetime
 
 # -----------------------
 # HELPERS
