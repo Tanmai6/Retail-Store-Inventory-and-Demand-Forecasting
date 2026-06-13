@@ -1,10 +1,23 @@
 import sqlite3
+import os
 import pandas as pd
 
 def setup_database():
     print("Loading CSV data...")
+
+    # 1. Get the absolute path to the folder containing this script
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 2. Build the exact GPS coordinate to the CSV file
+    csv_path = os.path.join(BASE_DIR, "data", "sales_data.csv")
+    db_path = os.path.join(BASE_DIR, 'retail_analytics.db')
+
+    if os.path.exists(db_path):
+        print("Removing old database for a clean build...")
+        os.remove(db_path)
+
     # 1. Read your raw data
-    df = pd.read_csv('data/sales_data.csv')
+    df = pd.read_csv(csv_path)
     print("Cleaning data...")
     # Drop empty ghost rows and duplicates
     df = df.dropna(how='all')
@@ -17,7 +30,8 @@ def setup_database():
   
     
     # 2. Connect to (and automatically create) the SQLite database file
-    conn = sqlite3.connect('retail_analytics.db')
+    
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     print("Building schema...")
@@ -100,7 +114,7 @@ def setup_database():
     """)
     conn.commit()
     # 6. Isolate and insert Stores
-    stores_df = df[['Store ID', 'Region']].drop_duplicates().rename(columns={'Store ID': 'store_id', 'Region': 'region'})
+    stores_df = df[['Store ID', 'Region']].drop_duplicates(subset=['Store ID']).rename(columns={'Store ID': 'store_id', 'Region': 'region'})
     stores_df['location_type'] = 'Retail_Branch' # Assuming CSV contains only retail branches
     stores_df.to_sql('Stores', conn, if_exists='append', index=False)
 
@@ -158,3 +172,8 @@ def setup_database():
 
 if __name__ == "__main__":
     setup_database()
+
+
+
+
+# Updating db_path for already exists condition
