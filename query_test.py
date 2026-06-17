@@ -15,41 +15,31 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 # ... (Keep all your imports and setup at the top exactly as they are) ...
 
 # 1. Update the function to take just the query (to match the orchestrator)
-def generate_rag_response(user_question):
-    # 1. RETRIEVE
+def generate_rag_response(user_question, store_id: str = None):
     query_vector = model.encode(user_question).tolist()
-    result = collection.query(query_embeddings=[query_vector], n_results=3)
-   
+
+    # Build ChromaDB where filter if store is scoped
+    where_filter = {"store_id": store_id} if store_id else None
+
+    result = collection.query(
+        query_embeddings=[query_vector],
+        n_results=5,
+        where=where_filter  # None = no filter = all stores
+    )
+
     retrieved_context = "\n".join(result['documents'][0])
-    
-    # 2. SYSTEM PROMPT
+
+    store_context = f"You are analysing data ONLY for Store {store_id}." if store_id else \
+                    "You have access to data across all stores."
+
     system_prompt_content = (
-        "You are a Retail Intelligence Analyst. "
+        f"You are a Retail Intelligence Analyst. {store_context} "
         "Extract the information directly from the 'Historical Context' provided. "
         "If you cannot find the answer, say 'I cannot find that in the provided logs'."
     )
-    
-    # 3. CONTEXTUAL PROMPT
-    user_prompt = f"Historical Context:\n{retrieved_context}\n\nUser Question: {user_question}"
-    
-    # 4. BUILD PAYLOAD
-    messages_payload = [
-        {"role": "system", "content": system_prompt_content},
-        {"role": "user", "content": user_prompt}
-    ]
-    
-    # 5. SYNTHESIZE with Timeout
-    try:
-        chat_completion = groq_client.chat.completions.create(
-            messages=messages_payload,
-            model="llama-3.1-8b-instant",
-            temperature=0.0,
-            timeout=15.0 
-        )
-        return chat_completion.choices[0].message.content
-    except Exception as e:
-        return f"Error: Could not connect to AI service. {str(e)}"
 
+    user_prompt = f"Historical Context:\n{retrieved_context}\n\nUser Question: {user_question}"
+    # ... rest unchanged
 
 # 2. WRAP THE RUNLOOP
 # This ensures it only runs if you execute query_test.py directly, 

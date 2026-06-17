@@ -1,10 +1,16 @@
 import sqlite3
 import pandas as pd
+import os
 
 def setup_database():
+    # 1. Idempotency: Nuke the old database before starting so you always have a clean slate
+    if os.path.exists('retail_analytics.db'):
+        os.remove('retail_analytics.db')
+        print("Old database removed. Starting fresh...")
+        
     print("Loading CSV data...")
-    # 1. Read your raw data
     df = pd.read_csv('data/sales_data.csv')
+    
     print("Cleaning data...")
     # Drop empty ghost rows and duplicates
     df = df.dropna(how='all')
@@ -15,7 +21,6 @@ def setup_database():
     df = df[df['Date'] <= '2024-01-31'] 
     df['Date'] = df['Date'].dt.strftime('%Y-%m-%d')
   
-    
     # 2. Connect to (and automatically create) the SQLite database file
     conn = sqlite3.connect('retail_analytics.db')
     cursor = conn.cursor()
@@ -81,27 +86,12 @@ def setup_database():
             GROUP BY store_id, product_id
         );
     """)
-
-    print("Extracting and normalizing data...")
-    cursor.execute("""
-        CREATE VIEW IF NOT EXISTS Analytical_View AS
-        SELECT 
-            *,
-            CAST(units_sold * price * (1.0 - (discount / 100.0)) AS REAL) AS revenue,
-            CAST(inventory_level * price AS REAL) AS inventory_value,
-            CAST(MAX(demand - units_sold, 0) AS INTEGER) AS lost_demand,
-            CAST(CASE WHEN inventory_level < demand THEN 1 ELSE 0 END AS INTEGER) AS is_stockout,
-            CAST(CASE WHEN inventory_level > (2 * demand) THEN 1 ELSE 0 END AS INTEGER) AS overstock,
-            CAST(units_sold AS REAL) / MAX(inventory_level, 1) AS sell_through_rate,
-            CAST(inventory_level AS REAL) / MAX(demand, 1) AS coverage_days,
-            CAST(price - competitor_pricing AS REAL) AS price_gap,
-            CAST((units_sold * price * (1.0 - (discount / 100.0))) - (units_sold * price * 0.4) AS REAL) AS gross_profit_proxy
-        FROM Daily_Operations_Log;
-    """)
     conn.commit()
+
+    print("Extracting and inserting dimension data...")
     # 6. Isolate and insert Stores
     stores_df = df[['Store ID', 'Region']].drop_duplicates().rename(columns={'Store ID': 'store_id', 'Region': 'region'})
-    stores_df['location_type'] = 'Retail_Branch' # Assuming CSV contains only retail branches
+    stores_df['location_type'] = 'Retail_Branch' 
     stores_df.to_sql('Stores', conn, if_exists='append', index=False)
 
     # 7. Isolate and insert Products
@@ -110,6 +100,7 @@ def setup_database():
     )
     products_df.to_sql('Store_Products', conn, if_exists='append', index=False)
 
+    print("Preparing and inserting historical fact data...")
     # 8. Prepare and insert the Historical Fact Table
     fact_df = df.rename(columns={
         'Date': 'record_date', 'Store ID': 'store_id', 'Product ID': 'product_id',
@@ -125,6 +116,8 @@ def setup_database():
     
     print(f"Inserting {len(fact_df)} transactional records. This may take a few seconds...")
     fact_df.to_sql('Daily_Operations_Log', conn, if_exists='append', index=False)
+
+    # 9. Build the unified Master_View with all advanced metrics and CAST safety nets
     print("Building Master_View for AI...")
     cursor.execute("DROP TABLE IF EXISTS Master_View;")
     cursor.execute("""
@@ -139,9 +132,19 @@ def setup_database():
             d.price, 
             d.discount, 
             d.promotion,
-            -- Metrics calculated from the Analytical_View logic
-            (d.units_sold * d.price * (1.0 - (d.discount / 100.0))) AS revenue,
-            CASE WHEN d.inventory_level < d.demand THEN 1 ELSE 0 END AS is_stockout,
+            
+            -- Core Metrics (Explicitly Cast for SQLAlchemy)
+            CAST((d.units_sold * d.price * (1.0 - (d.discount / 100.0))) AS REAL) AS revenue,
+            CAST((CASE WHEN d.inventory_level < d.demand THEN 1 ELSE 0 END) AS INTEGER) AS is_stockout,
+            
+            -- Rescued Advanced Metrics (Explicitly Cast for SQLAlchemy)
+            CAST(d.inventory_level * d.price AS REAL) AS inventory_value,
+            CAST(MAX(d.demand - d.units_sold, 0) AS INTEGER) AS lost_demand,
+            CAST(CASE WHEN d.inventory_level > (2 * d.demand) THEN 1 ELSE 0 END AS INTEGER) AS overstock,
+            CAST(d.units_sold AS REAL) / MAX(d.inventory_level, 1) AS sell_through_rate,
+            CAST(d.inventory_level AS REAL) / MAX(d.demand, 1) AS coverage_days,
+            CAST(d.price - d.competitor_pricing AS REAL) AS price_gap,
+
             -- Metadata
             s.region, 
             s.location_type, 
@@ -151,9 +154,8 @@ def setup_database():
         LEFT JOIN Store_Products sp ON d.store_id = sp.store_id AND d.product_id = sp.product_id;
     """)
     conn.commit()
-    print("Master_View is ready for the agent!")
-    conn.commit()
     conn.close()
+    
     print("Database setup complete! 'retail_analytics.db' created successfully.")
 
 if __name__ == "__main__":

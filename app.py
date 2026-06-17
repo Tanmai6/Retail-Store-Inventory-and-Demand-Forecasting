@@ -5,6 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 from orchestrator import handle_query
+from groq import Groq
+groq_client = Groq()
 # -----------------------
 # PAGE CONFIG
 # -----------------------
@@ -139,7 +141,59 @@ def kpi_row(items):
         </div>"""
     st.markdown(f'<div class="kpi-grid">{cards}</div>', unsafe_allow_html=True)
 
+def get_ai_insights(page_key: str, store_id: str = None, data_summary: str = ""):
+    cache_key = f"ai_insights_{page_key}"
+    
+    if cache_key not in st.session_state:
+        with st.spinner("🤖 Generating AI insights..."):
+            try:
+                if page_key == "warehouse":
+                    prompt = f"""You are a retail analyst. Based on this data summary, give exactly 4 concise inventory insights.
+Each insight on a new line, starting with a relevant emoji.
+Data Summary:
+{data_summary}
+Cover: top stockout risk product, most overstocked category, coverage days, lost revenue estimate."""
 
+                elif page_key == "ceo":
+                    prompt = f"""You are a retail analyst. Based on this data summary, give exactly 4 strategic business insights.
+Each insight on a new line, starting with a relevant emoji.
+Data Summary:
+{data_summary}
+Cover: best/worst region, promotion effectiveness, inventory health, revenue trend."""
+
+                else:  # branch
+                    prompt = f"""You are a retail analyst. Based on this data summary for Store {store_id}, give exactly 4 concise insights.
+Each insight on a new line, starting with a relevant emoji.
+Data Summary:
+{data_summary}
+Cover: top category, weather impact, promotion lift, stockout risk."""
+
+                response = groq_client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": "You are a concise retail intelligence analyst. Output exactly 4 lines of insight, each starting with an emoji. No extra text."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.3,
+                    max_tokens=300
+                )
+
+                raw = response.choices[0].message.content  # ← raw is defined here
+                lines = [l.strip() for l in raw.strip().split("\n") if l.strip()][:4]
+                st.session_state[cache_key] = lines
+
+            except Exception as e:
+                if "rate_limit" in str(e).lower() or "429" in str(e):
+                    st.session_state[cache_key] = [
+                        "⏳ Token limit reached. Insights will load after reset (resets daily).",
+                        "📊 Check the charts above for live store metrics.",
+                        "💬 Chat queries also paused temporarily.",
+                        "🔄 Click 'Refresh AI Insights' after a few minutes."
+                    ]
+                else:
+                    st.session_state[cache_key] = [f"⚠️ Could not load insights: {str(e)}"]
+
+    return st.session_state[cache_key]
 
 # -----------------------
 # AI PANEL  — page_key ensures unique widget keys per dashboard page
@@ -173,30 +227,50 @@ def ai_assistant_panel(page_key="global"):
         "How do Ps impact sales?",
         "Which Region is underperforming?",
     ]
+
     qc = st.columns(2)
+    # In ai_assistant_panel(), replace the quick prompts loop:
+
     for i, prompt in enumerate(quick_prompts):
-        with qc[i % 2]:
-            btn_key = f"quick_{page_key}_{i}"
-            if st.button(prompt, key=btn_key):
+     with qc[i % 2]:
+        btn_key = f"quick_{page_key}_{i}"
+        if st.button(prompt, key=btn_key):
+            if f"processing_{btn_key}" not in st.session_state:
+                st.session_state[f"processing_{btn_key}"] = True
                 history.append({"role": "user", "content": prompt})
                 with st.spinner("Thinking..."):
-                    reply = handle_query(prompt)
+                    try:
+                        reply = handle_query(prompt, store_id=st.session_state.get("active_store_scope"))
+                    except Exception as e:
+                        if "429" in str(e) or "rate_limit" in str(e).lower():
+                            reply = "⏳ Daily token limit reached. Please wait a few minutes."
+                        else:
+                            reply = f"⚠️ Error: {str(e)}"
                 history.append({"role": "assistant", "content": reply})
                 st.session_state[history_key] = history
+                del st.session_state[f"processing_{btn_key}"]
                 st.rerun()
+    
+
 
     with st.form(f"chat_form_{page_key}", clear_on_submit=True):
         user_input = st.text_input("Type your question...",
                                    placeholder="e.g. What products are at stockout risk?",
                                    label_visibility="collapsed")
         submitted = st.form_submit_button("Send ➤", use_container_width=True)
-        if submitted and user_input.strip():
-            history.append({"role": "user", "content": user_input})
-            with st.spinner("Thinking..."):
-                reply = reply = handle_query(user_input)
-            history.append({"role": "assistant", "content": reply})
-            st.session_state[history_key] = history
-            st.rerun()
+    if submitted and user_input.strip():
+        history.append({"role": "user", "content": user_input})
+        with st.spinner("Thinking..."):
+            try:
+                reply = handle_query(user_input, store_id=st.session_state.get("active_store_scope"))
+            except Exception as e:
+                if "429" in str(e) or "rate_limit" in str(e).lower():
+                    reply = "⏳ Daily token limit reached. Please wait a few minutes and try again."
+                else:
+                    reply = f"⚠️ Error: {str(e)}"
+        history.append({"role": "assistant", "content": reply})
+        st.session_state[history_key] = history
+        st.rerun()
 
     if history:
         if st.button("🗑 Clear Chat", key=f"clear_chat_{page_key}", use_container_width=True):
@@ -337,6 +411,7 @@ def home():
 # -----------------------
 # CEO DASHBOARD
 # -----------------------
+st.session_state["active_store_scope"] = None
 def ceo_dashboard():
     hc, dc = st.columns([3, 1])
     with hc:
@@ -520,18 +595,30 @@ def ceo_dashboard():
         st.plotly_chart(fig9, use_container_width=True)
 
     st.divider()
-    st.markdown("<div class='section-header'>AI Executive Insights</div>", unsafe_allow_html=True)
-    top_region = dff.groupby("Region")["Revenue"].sum().idxmax()
-    top_cat = dff.groupby("Category")["Revenue"].sum().idxmax()
-    for icon, text in [
-        ("🟢", f"{top_region} Region leads revenue — reinforce marketing to amplify this advantage."),
-        ("🔵", f"{top_cat} has the highest revenue share. Prepare inventory ahead of peak Demand cycles."),
-        ("🟣", f"Ps generate +{promo_lift:.1f}% additional revenue. Scaling Promotion frequency could significantly boost monthly totals."),
-        ("🔴", f"Stockout risk at {dff['Stockout'].mean()*100:.1f}% — {fmt_num(dff['Stockout'].sum())} SKU-hours at risk. Prioritize reorder for top-Demand products."),
-    ]:
-        st.markdown(f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>', unsafe_allow_html=True)
+    st.markdown("<div class='section-header'>AI Strategic Insights</div>", unsafe_allow_html=True)
+    summary = f"""
+Total Revenue: ${dff['Revenue'].sum():,.0f}
+Best Region: {dff.groupby('Region')['Revenue'].sum().idxmax()}
+Worst Region: {dff.groupby('Region')['Revenue'].sum().idxmin()}
+Promo Sales Lift: {promo_lift:.1f}%
+Stockout Rate: {dff['Stockout'].mean()*100:.1f}%
+Overstock Rate: {dff['Overstock'].mean()*100:.1f}%
+Avg Inventory Turnover: {dff['Inventory Turnover'].mean():.2f}x
+Top Category: {dff.groupby('Category')['Revenue'].sum().idxmax()}
+"""
 
-    st.markdown("<div class='section-header'>Ask AI About This Data</div>", unsafe_allow_html=True)
+    if st.button("✨ Generate AI Insights", key="gen_insights_ceo"):
+        st.session_state["show_insights_ceo"] = True
+
+    if st.session_state.get("show_insights_ceo"):
+        insights = get_ai_insights("ceo", store_id=None, data_summary=summary)
+        for line in insights:
+            icon = line[0] if line else "💡"
+            text = line[2:].strip() if len(line) > 2 else line
+            st.markdown(
+                f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>',
+                unsafe_allow_html=True
+            )
     ai_assistant_panel(page_key="ceo")
 
     if st.button("← Back to Home", key="ceo_back"):
@@ -541,6 +628,7 @@ def ceo_dashboard():
 # -----------------------
 # WAREHOUSE DASHBOARD
 # -----------------------
+st.session_state["active_store_scope"] = None
 def warehouse_dashboard():
     hc, dc = st.columns([3, 1])
     with hc:
@@ -700,16 +788,28 @@ def warehouse_dashboard():
 
     st.divider()
     st.markdown("<div class='section-header'>AI Inventory Insights</div>", unsafe_allow_html=True)
-    most_ov = dff.groupby("Category")["Inventory Level"].mean().idxmax()
-    for icon, text in [
-        ("📦", f"Product {dff[dff['Stockout']]['Product ID'].value_counts().index[0]} likely to stock out in 3–5 days. Place a reorder of ~500 units immediately."),
-        ("⚠️", f"{most_ov} is overstocked by ~18%. Consider a clearance Promotion to reduce holding costs."),
-        ("🔄", f"Avg inventory coverage is {dff['Coverage Days'].mean():.1f} days. Target 30–45 days for optimal working capital."),
-        ("📉", f"Lost Demand of {fmt_num(dff['Lost Demand'].sum())} units → estimated missed revenue of {fmt_money(dff['Lost Demand'].sum() * dff['Price'].mean())}."),
-    ]:
-        st.markdown(f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>', unsafe_allow_html=True)
+    summary = f""" 
+Total Inventory Value: ${dff['Inventory Value'].sum():,.0f}
+Stockout Rate: {dff['Stockout'].mean()*100:.1f}%
+Most Stocked Out Product: {dff[dff['Stockout']]['Product ID'].value_counts().index[0]}
+Most Overstocked Category: {dff.groupby('Category')['Inventory Level'].mean().idxmax()}
+Avg Coverage Days: {dff['Coverage Days'].mean():.1f}
+Lost Demand Units: {dff['Lost Demand'].sum():,.0f}
+Est. Lost Revenue: ${(dff['Lost Demand'] * dff['Price']).sum():,.0f}
+"""
+    if st.button("✨ Generate AI Insights", key="gen_insights_ceo"):
+        st.session_state["show_insights_ceo"] = True
 
-    st.markdown("<div class='section-header'>Ask AI About Inventory</div>", unsafe_allow_html=True)
+    if st.session_state.get("show_insights_ceo"):
+        insights = get_ai_insights("ceo", store_id=None, data_summary=summary) 
+   
+    for line in insights:
+        icon = line[0] if line else "💡"
+        text = line[2:].strip() if len(line) > 2 else line
+        st.markdown(
+            f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>',
+            unsafe_allow_html=True
+        )
     ai_assistant_panel(page_key="warehouse")
 
     if st.button("← Back to Home", key="wh_back"):
@@ -726,6 +826,7 @@ def branch_dashboard():
         st.caption("Store Performance & Operations Overview")
     with sc:
         store = st.selectbox("Select Store", sorted(df["Store ID"].unique()), key="branch_store")
+        st.session_state["active_store_scope"] = store 
     with dc:
         date_filter = st.selectbox("Period", ["All Time", "Last 30 Days", "Last 7 Days"],
                                     label_visibility="collapsed", key="br_period")
@@ -886,16 +987,30 @@ def branch_dashboard():
 
     st.divider()
     st.markdown("<div class='section-header'>AI Store Recommendations</div>", unsafe_allow_html=True)
-    top_cat_s = d.groupby("Category")["Revenue"].sum().idxmax()
-    low_cat_s = d.groupby("Category")["Revenue"].sum().idxmin()
-    top_wx = d.groupby("Weather Condition")["Revenue"].mean().idxmax()
-    for icon, text in [
-        ("📈", f"Demand for {top_cat_s} is trending up at Store {store}. Ensure stock is 20-30% above forecast for the next 2 weeks."),
-        ("📦", f"{top_wx} conditions correlate with higher beverage sales. Pre-stock cold drinks and snacks before forecasted warm spells."),
-        ("🏷️", f"Ps on {low_cat_s} drove +{promo_lift_br:.1f}% sales lift. Run targeted Discounts to clear slow-moving stock."),
-        ("🚨", f"{d[d['Stockout']].shape[0]} stockout events this period. Estimated lost revenue: {fmt_money(d['Lost Demand'].sum() * d['Price'].mean())}."),
-    ]:
-        st.markdown(f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>', unsafe_allow_html=True)
+    summary = f"""
+Total Inventory Value: ${df['Inventory Value'].sum():,.0f}
+Stockout Rate: {df['Stockout'].mean()*100:.1f}%
+Most Stocked Out Product: {df[df['Stockout']]['Product ID'].value_counts().index[0]}
+Most Overstocked Category: {df.groupby('Category')['Inventory Level'].mean().idxmax()}
+Avg Coverage Days: {df['Coverage Days'].mean():.1f}
+Lost Demand Units: {df['Lost Demand'].sum():,.0f}
+Est. Lost Revenue: ${(df['Lost Demand'] * df['Price']).sum():,.0f}
+"""
+
+    if st.button("✨ Generate AI Insights", key=f"gen_insights_{store}"):
+        st.session_state[f"show_insights_{store}"] = True
+
+    if st.session_state.get(f"show_insights_{store}"):
+        insights = get_ai_insights(f"branch_{store}", store_id=store, data_summary=summary)
+        for line in insights:
+            icon = line[0] if line else "💡"
+            text = line[2:].strip() if len(line) > 2 else line
+            st.markdown(
+                f'<div class="insight-card"><span style="font-size:18px;">{icon}</span><span>{text}</span></div>',
+                unsafe_allow_html=True
+            )
+    
+       
 
     st.markdown(f"<div class='section-header'>Ask AI About Store {store}</div>", unsafe_allow_html=True)
     ai_assistant_panel(page_key=f"branch_{store}")
