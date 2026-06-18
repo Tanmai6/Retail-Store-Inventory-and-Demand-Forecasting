@@ -50,6 +50,14 @@ def create_sql_agent_for_scope(store_id: str = None):
     === CRITICAL STOP RULE ===
     If you have already found the answer, DO NOT perform any further actions.
     Output the Final Answer immediately. Do not confirm with additional queries.
+    === LOOP PREVENTION ===
+    Once you have executed a query and received data in an Observation, you MUST write your Final Answer immediately.
+    Do NOT re-run the same query. Do NOT run a follow-up query to "confirm" results.
+    The pattern is: ONE query → ONE observation → Final Answer. Never more than that for simple aggregations.
+
+    If you already have the data to answer the question, the ONLY valid next step is:
+    Thought: I now have the data I need.
+    Final Answer: [your answer here]
     """
 
     return create_sql_agent(
