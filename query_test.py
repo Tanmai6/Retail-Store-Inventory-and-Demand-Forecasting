@@ -37,15 +37,14 @@ def _retrieve(query: str, store_id: str = None):
     month_match = re.search(r'\d{4}-\d{2}(?!-\d{2})', query)  
 
     # 2. Build ChromaDB 'where' filter dynamically
-    where_conditions = []
-    
-    if store_id:
-        where_conditions.append({"store_id": store_id})
+    where_conditions =  []
+    store_match = re.search(r'\b[Ss]\d{3}\b', query, re.IGNORECASE)
+    effective_store_id = store_id or (store_match.group().upper() if store_match else None)
+    if effective_store_id:
+        where_conditions.append({"store_id": effective_store_id})
         
     if date_match:
         where_conditions.append({"date": date_match.group()})
-    # Note: ChromaDB doesn't natively support 'startswith' for strings in standard operators,
-    # so for exact month matching, we rely on post-filtering if it's just a month.
 
     # Combine conditions using Chroma's $and syntax if multiple exist
     if len(where_conditions) == 1:

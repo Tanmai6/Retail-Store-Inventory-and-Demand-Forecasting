@@ -145,7 +145,7 @@ def get_ai_insights(page_key: str, store_id: str = None, data_summary: str = "")
     cache_key = f"ai_insights_{page_key}"
     
     if cache_key not in st.session_state:
-        with st.spinner("🤖 Generating AI insights..."):
+        with st.spinner("Generating AI insights..."):
             try:
                 if page_key == "warehouse":
                     prompt = f"""You are a retail analyst. Based on this data summary, give exactly 4 concise inventory insights.
@@ -607,7 +607,7 @@ Avg Inventory Turnover: {dff['Inventory Turnover'].mean():.2f}x
 Top Category: {dff.groupby('Category')['Revenue'].sum().idxmax()}
 """
 
-    if st.button("✨ Generate AI Insights", key="gen_insights_ceo"):
+    if st.button("Generate AI Insights", key="gen_insights_ceo"):
         st.session_state["show_insights_ceo"] = True
 
     if st.session_state.get("show_insights_ceo"):

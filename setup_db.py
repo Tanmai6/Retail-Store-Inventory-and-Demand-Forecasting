@@ -127,11 +127,16 @@ def setup_database():
             d.store_id, 
             d.product_id, 
             d.inventory_level, 
-            d.units_sold, 
+            d.units_sold,
+            d.units_ordered,
             d.demand, 
             d.price, 
-            d.discount, 
+            d.discount,
+            d.competitor_pricing,
+            d.weather_condition,
+            d.seasonality,
             d.promotion,
+            d.epidemic,
             
             -- Core Metrics (Explicitly Cast for SQLAlchemy)
             CAST((d.units_sold * d.price * (1.0 - (d.discount / 100.0))) AS REAL) AS revenue,
