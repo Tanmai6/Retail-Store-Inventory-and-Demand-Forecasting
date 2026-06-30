@@ -16,17 +16,27 @@ Read the user's question and decide which system should handle it.
  
 System A — SQL:
 Handles numbers, metrics, inventory, stockouts, revenue, store performance,
-calculations, comparisons, rankings, trends, and promotion impact.
+calculations, comparisons, rankings, trends, promotion impact, AND any
+request for specific records, logs, or "what happened" events — these are
+all structured rows in Master_View and should be queried/summarized via SQL.
+If the question asks about the IMPACT, EFFECT, INFLUENCE, or RELATIONSHIP of ANY factor
+on sales, revenue, inventory, stockouts, or demand — route to SQL, ALWAYS.
+This includes: epidemic, weather, promotions, seasonality, discounts, region,
+category, store — regardless of how the question is phrased.                                           
 Examples: "Which store had highest revenue?", "How many stockouts in January?",
 "Compare sales across regions", "Top 5 products by units sold",
 "What is the stockout risk?", "How do promotions impact sales?",
-"Which region is underperforming?", "Which category earns most?"
+"Which region is underperforming?", "Which category earns most?",
+"Show me stockout logs for Electronics", "What happened at Store S001 last week?",
+"Show me the work log for today","Which region is underperforming?", "Which category earns most?", "What was recorded for Product P001?",
+"Find records where inventory was critically low"
  
 System B — RAG:
-Handles log-level details, work logs, and questions about specific records or events.
-Examples: "Show me stockout logs for Electronics", "What happened at Store S001 last week?",
-"Show me the work log for today", "What was recorded for Product P001?",
-"Find records where inventory was critically low"
+Handles unstructured knowledge — policy documents, SOPs, free-text notes,
+manuals, or anything NOT stored as rows in Master_View.
+Examples: "What is our return policy for damaged goods?",
+"Summarize the supplier onboarding guidelines",
+"What does the SOP say about handling stockouts?"
  
 Output ONLY one word: SQL or RAG. No explanation, no punctuation.
  

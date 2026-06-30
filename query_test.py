@@ -17,17 +17,6 @@ N_RESULTS          = 20
 DISTANCE_THRESHOLD = 1.0
 
 
-# ── Log request detector ───────────────────────────────────────────────────────
-LOG_KEYWORDS = [
-    "work log", "activity log", "what happened", "show me records",
-    "show logs", "log entries", "daily log", "raw log", "log for",
-    "records for", "entries for", "what was recorded", "show me what happened"
-]
-
-def _is_log_request(question: str) -> bool:
-    return any(kw in question.lower() for kw in LOG_KEYWORDS)
-
-
 # ── Retrieval ──────────────────────────────────────────────────────────────────
 def _retrieve(query: str, store_id: str = None):
     query_vector = embed_model.encode(query).tolist()
@@ -132,10 +121,6 @@ def generate_rag_response(user_question: str, store_id: str = None, chat_history
             f"No closely matching records were found{scope}. "
             "Try rephrasing with specific store IDs, product IDs, categories, or date ranges."
         )
-
-    # Raw log request → return document strings directly, skip LLM
-    if _is_log_request(user_question):
-        return _format_log_output(docs, metadatas)
 
     # Synthesize with LLM
     context_parts = []

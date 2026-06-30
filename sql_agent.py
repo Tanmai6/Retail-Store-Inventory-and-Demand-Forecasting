@@ -59,10 +59,16 @@ def _build_system_prompt(store_id: str | None) -> str:
 === COLUMN QUICK-REFERENCE ===
 - Revenue             → revenue  (already computed: units_sold * price * (1 - discount/100))
 - Stockout risk       → AVG(is_stockout) * 100
-- Promotions          → use 1 (active) or 0 (not active)
+- Promotions          → use 1 (active) or 0 (not active/no promotion).0/1 are NOT types of promotion
 - Inventory right now → inventory_level (end-of-day snapshot for that record_date)
 - Lost sales          → lost_demand
 - Excess stock        → overstock (flag), coverage_days (days of stock on hand)
+- Sell-through        → sell_through_rate (units_sold / inventory_level)
+- Units reordered     → units_ordered (separate from units_sold)
+- Competitor pricing  → competitor_pricing (the competitor's price, NOT our price)
+- Price vs competitor → price_gap (= price - competitor_pricing).
+                        POSITIVE price_gap means WE are priced HIGHER than the competitor.
+                        NEGATIVE price_gap means WE are priced LOWER than the competitor.
 === COLUMN VALUE REFERENCE (use EXACTLY these) ===
 - seasonality:       'Winter', 'Spring', 'Summer', 'Autumn'
 - weather_condition: 'Snowy', 'Rainy', 'Sunny'  
@@ -70,12 +76,38 @@ def _build_system_prompt(store_id: str | None) -> str:
 - location_type:     'Retail_Branch', 'Warehouse'
 - epidemic: INTEGER — use 1 (active) or 0 (not active). NEVER use 'true', 'yes', 'epidemic', or any string.
 - promotion:         INTEGER — 1 = promotion active, 0 = no promotion (never use 'true'/'yes')
+                    NOTE: "promotion" and "discount" are SEPARATE, UNRELATED columns.
+                    promotion=1 does NOT mean a specific discount %, and discount can be
+                    nonzero even when promotion=0. Never conflate the two.
 - is_stockout:       INTEGER — 1 = stockout, 0 = no stockout
 
 === STORE SCOPE ===
 {scope_rule}
+=== QUERY TYPE — CHOOSE THE RIGHT SQL SHAPE ===
+ 
+1. ANALYTICAL / COMPARISON questions (impact, trend, compare, rank, average, total, best, worst):
+   → Write an AGGREGATE query using GROUP BY, SUM, AVG, COUNT etc.
+   → Return a SMALL result set (one row per group, not raw rows).
+   - For compare/impact of weather/season/epidemic/promotion/discount/competitor pricing look at averages       
+   → Examples:
+     "How do promotions impact sales?"
+       → SELECT promotion, COUNT(*) as days, ROUND(AVG(units_sold),2) as avg_units, ROUND(AVG(revenue),2) as avg_revenue FROM Master_View GROUP BY promotion
+     "Which category earns most?"
+       → SELECT category, ROUND(SUM(revenue),2) as total_revenue FROM Master_View GROUP BY category ORDER BY total_revenue DESC
+     "Compare regions by stockout risk"
+       → SELECT region, ROUND(AVG(is_stockout)*100,2) as stockout_pct FROM Master_View GROUP BY region
+ 
+2. LISTING / LOG / EVENT questions (what happened, show records, work log, find entries):
+   → Write a row-returning query with specific relevant columns (NOT SELECT *).
+   → Always include ORDER BY record_date DESC and LIMIT 100.
+   → Example:
+     "What happened on 2023-04-05?"
+       → SELECT record_date, store_id, product_id, category, units_sold, inventory_level, revenue, is_stockout FROM Master_View WHERE record_date = '2023-04-05' ORDER BY store_id, product_id
+
 === BUSINESS LOGIC RULES ===
 compare regions(north south east west) by their total revenue
+Ps mean Promotion
+
 === OUTPUT FORMAT (STRICT) ===
 You must reply in this exact format and nothing else:
 
@@ -213,8 +245,18 @@ def run_sql_agent(question: str, store_id: str | None = None) -> dict:
                     "You are a retail analytics assistant. "
                     "Given a question and SQL query results, write a clear, concise answer. "
                     "Do NOT mention SQL, tables, or columns. Speak to a business user. "
+                    "CRITICAL — STORE + PRODUCT IDENTITY: product_id is NOT globally unique — it is scoped to a store."
                     "If results are empty, say no data was found. "
-                    "Be specific: include numbers, store IDs, and category names from the results."
+                     "Choose your answer style based on what the SQL results look like:\n\n"
+                    "A) AGGREGATE RESULTS (a few rows, each representing a group — e.g. one row per "
+                    "promotion type, region, category): Give a clean, direct business answer. "
+                    "State the key finding first (e.g. 'Promotions increase average revenue by X%'), "
+                    "then support with the specific numbers from the results. Do NOT mention individual "
+                    "records or product IDs. Be concise.\n\n"
+                    "B) ROW-LEVEL RESULTS (many rows, each a specific event/record — e.g. listing of "
+                    "daily operations): Summarize patterns across those specific data points only — "
+                    "counts, date range, standout individual records. Reference actual store IDs, product IDs, and numbers "
+                    "from the results."
                 ),
             },
             {
