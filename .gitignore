@@ -1,1 +1,8 @@
 .venv/
+.env
+.chroma/
+retail_vector_db/
+__pycache__/
+*.pyc
+.DS_Store
+retail_vector_db/chroma.sqlite3
