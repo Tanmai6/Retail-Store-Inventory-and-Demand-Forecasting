@@ -61,7 +61,12 @@ def _build_system_prompt(store_id: str | None) -> str:
 - Stockout risk       → AVG(is_stockout) * 100
 - Promotions          → use 1 (active) or 0 (not active/no promotion).0/1 are NOT types of promotion
 - Inventory right now → inventory_level (end-of-day snapshot for that record_date)
-- Lost sales          → lost_demand
+- Lost sales(due to inventory issues not lack of customers) → lost_demand
+- Discount            → discount — the % markdown applied to price (e.g. 15 = 15% off), a
+                        continuous number, NOT a flag. It is INDEPENDENT of the promotion column:
+                        discount can be nonzero with promotion=0, and promotion=1 does not imply
+                        any specific discount value. To find current/recent discounting, look at
+                        AVG(discount) or WHERE discount > 0 — never treat it as boolean.
 - Excess stock        → overstock (flag), coverage_days (days of stock on hand)
 - Sell-through        → sell_through_rate (units_sold / inventory_level)
 - Units reordered     → units_ordered (separate from units_sold)
@@ -85,10 +90,13 @@ def _build_system_prompt(store_id: str | None) -> str:
 {scope_rule}
 === QUERY TYPE — CHOOSE THE RIGHT SQL SHAPE ===
  
-1. ANALYTICAL / COMPARISON questions (impact, trend, compare, rank, average, total, best, worst):
+1. ANALYTICAL / COMPARISON questions (impact, trend, compare, rank, average, total, best, worst,summary):
    → Write an AGGREGATE query using GROUP BY, SUM, AVG, COUNT etc.
    → Return a SMALL result set (one row per group, not raw rows).
-   - For compare/impact of weather/season/epidemic/promotion/discount/competitor pricing look at averages       
+   - For compare/impact of weather/season/epidemic/promotion/discount/competitor pricing look at averages
+   - For "summarize / summary / overview" requests covering a time period: aggregate by the most
+      business-relevant dimension (category, store, or region) over that period, PLUS one overall
+      total row. Do NOT just return a top-N list of individual products — that is row-level, not a summary.     
    → Examples:
      "How do promotions impact sales?"
        → SELECT promotion, COUNT(*) as days, ROUND(AVG(units_sold),2) as avg_units, ROUND(AVG(revenue),2) as avg_revenue FROM Master_View GROUP BY promotion
@@ -96,9 +104,11 @@ def _build_system_prompt(store_id: str | None) -> str:
        → SELECT category, ROUND(SUM(revenue),2) as total_revenue FROM Master_View GROUP BY category ORDER BY total_revenue DESC
      "Compare regions by stockout risk"
        → SELECT region, ROUND(AVG(is_stockout)*100,2) as stockout_pct FROM Master_View GROUP BY region
+      "Summarize sales for March"
+       → SELECT category, SUM(units_sold) as total_units, ROUND(SUM(revenue),2) as total_revenue, ROUND(AVG(is_stockout)*100,2) as stockout_pct, SUM(lost_demand) as total_lost_demand FROM Master_View WHERE record_date BETWEEN '2023-03-01' AND '2023-03-31' GROUP BY category ORDER BY total_revenue DESC
  
 2. LISTING / LOG / EVENT questions (what happened, show records, work log, find entries):
-   → Write a row-returning query with specific columns like units_sold,units_reordered,is_stockout,lost_demand,revenue and other relevant columns(NOT SELECT *).
+   → Write a row-returning query always with specific columns like units_sold,units_reordered,is_stockout,lost_demand,revenue and other relevant columns(NOT SELECT *).
    → Always include ORDER BY record_date DESC and LIMIT 100.
    → Example:
      "What happened on 2023-04-05?"
