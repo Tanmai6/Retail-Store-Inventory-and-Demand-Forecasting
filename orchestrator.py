@@ -17,6 +17,7 @@ Read the user's question and decide which system should handle it.
 System A - SQL:
 Handles numbers, metrics, inventory, stockouts, revenue, store performance,
 calculations, comparisons, rankings, trends, promotion impact, AND any
+request for specific records, logs, or "what happened" events - these are
 all structured rows in Master_View and should be queried/summarized via SQL.
 If the question asks about the IMPACT, EFFECT, INFLUENCE, or RELATIONSHIP of ANY factor
 on sales, revenue, inventory, stockouts, or demand - route to SQL, ALWAYS.
@@ -35,7 +36,12 @@ Handles unstructured knowledge - policy documents, SOPs, free-text notes,
 manuals, or anything NOT stored as rows in Master_View.
 Examples: "What is our return policy for damaged goods?",
 "Summarize the supplier onboarding guidelines",
-"What does the SOP say about handling stockouts?"
+"What does the SOP say about handling stockouts?",
+"Who do I escalate a warehouse issue to?",
+"What is the escalation ladder for store-level complaints?",
+"Who is the CEO of the company?",
+"How many stores does the company have?",
+"What is the organizational structure?"
                                              
 System C - NR
 whenever the question is totally unrelated to anything in System A or System B
@@ -66,3 +72,43 @@ def handle_query(query: str, store_id: str = None):
 
     else:
         return "I'm not sure about this question. Please ask about retail metrics or store policies."
+    
+
+# ──────────────────────────────────────────────
+# MANUAL TEST SUITE
+# ──────────────────────────────────────────────
+if __name__ == "__main__":
+    print("Starting Manual Router Tests...\n")
+    print("=" * 70)
+    
+    # Format: (store_id, query, expected_routing)
+    test_cases = [
+        # --- SQL Routing Tests (Metrics, Logs, Impacts) ---
+        (None,   "Which is the capital of India?", "SQL")
+        
+    ]
+
+    for i, (store_id, query, expected) in enumerate(test_cases, 1):
+        scope_label = f"Store {store_id}" if store_id else "All Stores (Global)"
+        
+        print(f"Test {i}: {query}")
+        print(f"Scope    : {scope_label}")
+        print(f"Expected : {expected}")
+        
+        try:
+            # 1. Test just the router decision first to ensure accuracy
+            decision = router_chain.invoke({"query": query}).strip().upper()
+            
+            # Simple color coding for terminal (Optional but helpful)
+            match_status = "✅ PASS" if expected in decision else "❌ FAIL"
+            print(f"Actual   : {decision} {match_status}")
+            
+            # 2. To test the full execution, uncomment the lines below:
+            # print("Executing full pipeline...")
+            # result = handle_query(query, store_id)
+            # print(f"Answer   : {result[:250]}...") # Truncated for readability
+            
+        except Exception as e:
+            print(f"ERROR: {e}")
+            
+        print("-" * 70)
