@@ -98,11 +98,11 @@ def _build_system_prompt(store_id: str | None) -> str:
        → SELECT region, ROUND(AVG(is_stockout)*100,2) as stockout_pct FROM Master_View GROUP BY region
  
 2. LISTING / LOG / EVENT questions (what happened, show records, work log, find entries):
-   → Write a row-returning query with specific relevant columns (NOT SELECT *).
+   → Write a row-returning query with specific columns like units_sold,units_reordered,is_stockout,lost_demand,revenue and other relevant columns(NOT SELECT *).
    → Always include ORDER BY record_date DESC and LIMIT 100.
    → Example:
      "What happened on 2023-04-05?"
-       → SELECT record_date, store_id, product_id, category, units_sold, inventory_level, revenue, is_stockout FROM Master_View WHERE record_date = '2023-04-05' ORDER BY store_id, product_id
+       → SELECT record_date, store_id, product_id, category, units_sold, inventory_level, revenue, lost_demand, is_stockout FROM Master_View WHERE record_date = '2023-04-05' ORDER BY store_id, product_id
 
 === BUSINESS LOGIC RULES ===
 compare regions(north south east west) by their total revenue
