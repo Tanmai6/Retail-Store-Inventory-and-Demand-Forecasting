@@ -7,6 +7,7 @@ import requests
 from orchestrator import handle_query
 from groq import Groq
 from html import escape
+import os
 groq_client = Groq()
 # -----------------------
 # PAGE CONFIG
@@ -72,6 +73,37 @@ def load_retail_data():
     df["Gross Profit (Proxy)"] = df["Revenue"] - (df["Units Sold"] * df["Price"] * 0.4)
     
     return df
+df = load_retail_data()
+
+# ── STEP 1: Load pre-computed ML forecasts and merge into df ─────────────────
+FORECAST_PATH = "data/demand_forecast_results.csv"
+FORECAST_COLS = ["Forecast_RandomForest", "Forecast_XGBoost", "Forecast_Ensemble"]
+
+@st.cache_data
+def load_forecast():
+    if not os.path.exists(FORECAST_PATH):
+        return None
+    fc = pd.read_csv(FORECAST_PATH, parse_dates=["Date"])
+    for col in ["Store ID", "Product ID"]:
+        if col in fc.columns:
+            fc[col] = fc[col].astype(str)
+    return fc
+
+forecast_df = load_forecast()
+
+if forecast_df is not None:
+    df["Store ID"]   = df["Store ID"].astype(str)
+    df["Product ID"] = df["Product ID"].astype(str)
+    df = df.merge(
+        forecast_df[["Date", "Store ID", "Product ID"] + FORECAST_COLS],
+        on=["Date", "Store ID", "Product ID"],
+        how="left"
+    )
+    FORECAST_AVAILABLE = True
+else:
+    for col in FORECAST_COLS:
+        df[col] = np.nan
+    FORECAST_AVAILABLE = False
 
 df = load_retail_data()
 # -----------------------
@@ -87,7 +119,8 @@ def fmt_num(x):
     if x >= 1_000: return f"{x/1_000:.1f}K"
     return f"{x:.0f}"
 
-def fmt_pct(x): return f"{x:.1f}%"
+def fmt_pct(x):
+    return f"{x:.1f}%"
 
 PLOTLY_COLORS = ["#6C63FF", "#00C48C", "#FF8C42", "#4EAEFF", "#FF4C61", "#A78BFA"]
 
@@ -126,10 +159,9 @@ with open("styles.css") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # -----------------------
-# KPI CARD HELPER  (renders a row of cards via HTML so values never truncate)
+# KPI CARD HELPER
 # -----------------------
 def kpi_row(items):
-    """items = list of (label, value, delta, delta_type) where delta_type in pos/neg/neu"""
     cards = ""
     for label, value, delta, dt in items:
         cls = f"kpi-delta-{dt}"
@@ -209,7 +241,6 @@ def ai_assistant_panel(page_key="global"):
 
     history = st.session_state[history_key]
 
-    # Chat display
     chat_html = '<div class="chat-wrap">'
     if not history:
         chat_html += '<div style="text-align:center;color:#475569;padding:30px 0;font-size:13px;">👋 Ask me about revenue, inventory, trends, or store performance.</div>'
@@ -222,7 +253,6 @@ def ai_assistant_panel(page_key="global"):
     chat_html += '</div>'
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # Quick prompts
     quick_prompts = [
         "What is the stockout risk?",
         "Which Category earns most?",
@@ -294,6 +324,12 @@ def sidebar():
         <hr style='border-color:rgba(255,255,255,0.06);margin:10px 0;'>
         """, unsafe_allow_html=True)
 
+        # Forecast status badge
+        if FORECAST_AVAILABLE:
+            st.markdown("<div style='text-align:center;color:#00C48C;font-size:12px;margin-bottom:8px;'>🔮 ML Forecasts Active</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='text-align:center;color:#FF8C42;font-size:12px;margin-bottom:8px;'>⚠️ Run forecasting.py to enable ML</div>", unsafe_allow_html=True)
+
         pages = [
             ("🏠", "Home", "home"),
             ("📊", "CEO Dashboard", "ceo"),
@@ -314,7 +350,6 @@ def sidebar():
 # FORECAST CURVE HELPER
 # -----------------------
 def make_forecast_curve(historical_series, periods=14, label="Forecast"):
-    """Fit simple linear + noise trend, return (future_dates, forecast, lower, upper)."""
     vals = historical_series.values[-30:] if len(historical_series) >= 30 else historical_series.values
     x = np.arange(len(vals))
     slope, intercept = np.polyfit(x, vals, 1)
@@ -326,6 +361,96 @@ def make_forecast_curve(historical_series, periods=14, label="Forecast"):
     forecast = base + noise
     ci = noise_std * 1.96
     return forecast, forecast - ci, forecast + ci
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FORECAST CHART HELPER  (reused in CEO + Branch dashboards)
+# ─────────────────────────────────────────────────────────────────────────────
+def render_forecast_chart(d, height=320):
+    """
+    Renders the ML Actual vs Predicted chart for dataframe slice `d`.
+    Shows an info banner instead of crashing when forecasting.py hasn't been run.
+    """
+    st.markdown(
+        "<div class='section-header'>🔮 Predictive Demand Forecasting Performance</div>",
+        unsafe_allow_html=True
+    )
+
+    has_data = (
+        FORECAST_AVAILABLE
+        and all(c in d.columns for c in ["Demand"] + FORECAST_COLS)
+        and d[FORECAST_COLS].notna().any().any()
+    )
+
+    if not has_data:
+        st.info(
+            "🔮 **ML Forecast chart unlocks after you run `python forecasting.py` once.**  \n"
+            "The chart will appear automatically on next dashboard reload.",
+            icon="ℹ️"
+        )
+        return
+
+    timeline_df = (
+        d.groupby("Date")[["Demand"] + FORECAST_COLS]
+        .sum()
+        .reset_index()
+    )
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=timeline_df["Date"], y=timeline_df["Demand"],
+        mode="lines", name="Actual Demand",
+        line=dict(color="#1f77b4", width=3)
+    ))
+    fig.add_trace(go.Scatter(
+        x=timeline_df["Date"], y=timeline_df["Forecast_RandomForest"],
+        mode="lines", name="Random Forest",
+        line=dict(color="skyblue", width=2, dash="dot")
+    ))
+    fig.add_trace(go.Scatter(
+        x=timeline_df["Date"], y=timeline_df["Forecast_XGBoost"],
+        mode="lines", name="XGBoost",
+        line=dict(color="coral", width=2, dash="dash")
+    ))
+    fig.add_trace(go.Scatter(
+        x=timeline_df["Date"], y=timeline_df["Forecast_Ensemble"],
+        mode="lines", name="Ensemble Blend",
+        line=dict(color="#2ca02c", width=2, dash="longdash")
+    ))
+
+    fig.update_layout(
+        title="Timeline Analysis: Actual Demand vs ML Models",
+        xaxis_title="Date",
+        yaxis_title="Total Product Units",
+        hovermode="x unified",
+        paper_bgcolor=PAPER_BG,
+        plot_bgcolor=PLOT_BG,
+        font=dict(family="Inter", size=11, color=FONT_CLR),
+        height=height,
+        margin=dict(l=12, r=12, t=45, b=12),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(color=FONT_CLR))
+    )
+    fig.update_xaxes(showgrid=False, color=FONT_CLR, tickfont=dict(color=FONT_CLR))
+    fig.update_yaxes(showgrid=True, gridcolor=GRID_CLR, color=FONT_CLR, tickfont=dict(color=FONT_CLR))
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Accuracy KPI row — using HTML cards to avoid st.metric version issues
+    valid = d[["Demand", "Forecast_RandomForest", "Forecast_XGBoost"]].dropna()
+    if len(valid) > 10:
+        mae_rf  = np.mean(np.abs(valid["Demand"] - valid["Forecast_RandomForest"]))
+        mae_xgb = np.mean(np.abs(valid["Demand"] - valid["Forecast_XGBoost"]))
+        ss_tot  = np.sum((valid["Demand"] - valid["Demand"].mean()) ** 2)
+        r2_rf   = 1 - np.sum((valid["Demand"] - valid["Forecast_RandomForest"]) ** 2) / max(ss_tot, 1e-9)
+        r2_xgb  = 1 - np.sum((valid["Demand"] - valid["Forecast_XGBoost"]) ** 2) / max(ss_tot, 1e-9)
+        kpi_row([
+            ("RF — MAE",  f"{mae_rf:.1f} units",  "vs XGBoost", "neu"),
+            ("XGB — MAE", f"{mae_xgb:.1f} units", "vs RF",      "neu"),
+            ("RF — R²",   f"{r2_rf:.3f}",          "accuracy",   "pos"),
+            ("XGB — R²",  f"{r2_xgb:.3f}",         "accuracy",   "pos"),
+        ])
 
 
 # -----------------------
@@ -458,7 +583,6 @@ def ceo_dashboard():
     ).reset_index()
     ts["Month"] = ts["Date"].astype(str)
 
-    # Revenue forecast curve
     rev_fc, rev_lo, rev_hi = make_forecast_curve(ts["Revenue"], periods=3)
     fc_months = [f"FC+{i+1}" for i in range(3)]
 
@@ -596,6 +720,9 @@ def ceo_dashboard():
         fig9.update_layout(showlegend=False)
         st.plotly_chart(fig9, use_container_width=True)
 
+    # ── STEP 2 (CEO): ML Forecast chart ──────────────────────────────────────
+    st.divider()
+    render_forecast_chart(dff)
     st.divider()
     st.markdown("<div class='section-header'>AI Strategic Insights</div>", unsafe_allow_html=True)
     summary = f"""
@@ -717,8 +844,6 @@ def warehouse_dashboard():
         so_days = np.random.default_rng(7).integers(1, 8, len(prods))
         so_df = pd.DataFrame({"Product": prods, "Days Until Stockout": so_days}).sort_values("Days Until Stockout")
         colors_so = ["#FF4C61" if d <= 2 else "#FF8C42" if d <= 4 else "#00C48C" for d in so_df["Days Until Stockout"]]
-
-        # Add forecast uncertainty as error bars
         fig4 = go.Figure(go.Bar(
             x=so_df["Days Until Stockout"], y=so_df["Product"], orientation='h',
             marker_color=colors_so,
@@ -907,14 +1032,12 @@ def branch_dashboard():
         st.plotly_chart(fig3, use_container_width=True)
 
     with col4:
-        # Demand forecast curve
         d_daily = d.groupby(d["Date"].dt.date)["Demand"].sum().reset_index()
         d_daily.columns = ["Date", "Demand"]
         fc_d, lo_d, hi_d = make_forecast_curve(d_daily["Demand"], periods=7)
         hist_dates = [str(x) for x in d_daily["Date"].tail(14)]
         hist_vals  = d_daily["Demand"].tail(14).values
         fc_dates7  = [f"FC+{i+1}" for i in range(7)]
-
         fig4 = go.Figure()
         fig4.add_trace(go.Scatter(x=hist_dates, y=hist_vals, name="Historical",
                                    line=dict(color="#4EAEFF", width=2.5),
@@ -987,6 +1110,11 @@ def branch_dashboard():
         fig8.update_yaxes(title_text="Units Sold")
         st.plotly_chart(fig8, use_container_width=True)
 
+    # ── STEP 2 (Branch): ML Forecast chart ───────────────────────────────────
+    st.divider()
+    render_forecast_chart(d)
+
+    # ── STEP 3: Upgraded AI Insights with live MAE ───────────────────────────
     st.divider()
     st.markdown("<div class='section-header'>AI Store Recommendations</div>", unsafe_allow_html=True)
     summary = f"""
