@@ -9,8 +9,31 @@ def setup_database():
         print("Old database removed. Starting fresh...")
         
     print("Loading CSV data...")
-    df = pd.read_csv('data/sales_data.csv')
-    
+    df = pd.read_csv('data/processed_sales_data.csv')
+
+    required_columns = [
+        "Date",
+        "Store ID",
+        "Product ID",
+        "Category",
+        "Region",
+        "Inventory Level",
+        "Units Sold",
+        "Units Ordered",
+        "Price",
+        "Discount",
+        "Weather Condition",
+        "Promotion",
+        "Competitor Pricing",
+        "Seasonality",
+        "Epidemic",
+        "Demand"
+    ]   
+
+    df = pd.read_csv(
+        'data/processed_sales_data.csv',
+        usecols=required_columns
+    )   
     print("Cleaning data...")
     # Drop empty ghost rows and duplicates
     df = df.dropna(how='all')
@@ -18,7 +41,7 @@ def setup_database():
     
     # Parse dates, slice off the "future" 2024 data, and format for SQLite
     df['Date'] = pd.to_datetime(df['Date'], format='mixed', dayfirst=True)
-    df = df[df['Date'] <= '2024-01-31'] 
+    df = df[df['Date'] <= '2023-10-18'] 
     df['Date'] = df['Date'].dt.strftime('%Y-%m-%d')
   
     # 2. Connect to (and automatically create) the SQLite database file

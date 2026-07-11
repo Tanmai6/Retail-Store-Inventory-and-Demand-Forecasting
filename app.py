@@ -49,7 +49,7 @@ def load_retail_data():
         "region": "Region", 
         "inventory_level": "Inventory Level",
         "units_sold": "Units Sold", 
-        "units_ordered": "Units Ordered",  # <-- THIS IS THE MISSING PIECE!
+        "units_ordered": "Units Ordered", 
         "demand": "Demand", 
         "price": "Price",
         "promotion": "Promotion", 
@@ -73,8 +73,8 @@ def load_retail_data():
     df["Gross Profit (Proxy)"] = df["Revenue"] - (df["Units Sold"] * df["Price"] * 0.4)
     
     return df
-df = load_retail_data()
 
+df = load_retail_data()
 # ── STEP 1: Load pre-computed ML forecasts and merge into df ─────────────────
 FORECAST_PATH = "data/demand_forecast_results.csv"
 FORECAST_COLS = ["Forecast_RandomForest", "Forecast_XGBoost", "Forecast_Ensemble"]
@@ -104,8 +104,6 @@ else:
     for col in FORECAST_COLS:
         df[col] = np.nan
     FORECAST_AVAILABLE = False
-
-df = load_retail_data()
 # -----------------------
 # HELPERS
 # -----------------------
