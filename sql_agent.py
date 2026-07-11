@@ -74,6 +74,7 @@ def _build_system_prompt(store_id: str | None) -> str:
 - Price vs competitor → price_gap (= price - competitor_pricing).
                         POSITIVE price_gap means WE are priced HIGHER than the competitor.
                         NEGATIVE price_gap means WE are priced LOWER than the competitor.
+
 === COLUMN VALUE REFERENCE (use EXACTLY these) ===
 - seasonality:       'Winter', 'Spring', 'Summer', 'Autumn'
 - weather_condition: 'Snowy', 'Rainy', 'Sunny'  
@@ -88,12 +89,91 @@ def _build_system_prompt(store_id: str | None) -> str:
 
 === STORE SCOPE ===
 {scope_rule}
+=== BUSINESS LOGIC RULES ===
+compare regions(north south east west) by their total revenue
+Ps mean Promotion
+Refer to weather_condiition or seasonality if weather/season mentioned
+- PROMOTION IMPACT ANALYSIS — CRITICAL:
+  When asked which category/product/store "benefits most from promotions" or
+  is "most impacted by promotions", NEVER subtract revenue SUMs
+  (SUM_promo - SUM_no_promo). This is always misleading because non-promotional
+  periods have far more days and higher total revenue by volume alone.
+  ALWAYS use AVG revenue per record, then compute lift %:
+ 
+    SELECT category,
+      ROUND(AVG(CASE WHEN promotion=1 THEN revenue END), 2) AS avg_rev_with_promo,
+      ROUND(AVG(CASE WHEN promotion=0 THEN revenue END), 2) AS avg_rev_without_promo,
+      ROUND(
+        (AVG(CASE WHEN promotion=1 THEN revenue END)
+         - AVG(CASE WHEN promotion=0 THEN revenue END))
+        / NULLIF(AVG(CASE WHEN promotion=0 THEN revenue END), 0) * 100
+      , 2) AS promo_lift_pct
+    FROM Master_View
+    GROUP BY category
+    ORDER BY promo_lift_pct DESC
+ 
+  Apply the same AVG-based lift pattern when comparing promotion impact
+  by store, region, product, season, or weather.
+ 
+- DISCOUNT RECOMMENDATIONS — what should be discounted / marked down:
+  A product needs a discount when it has EXCESS stock and is NOT selling well.
+  Signal columns: overstock=1, high coverage_days, low sell_through_rate, high lost_demand=0.
+  NEVER recommend discounting a product just because it has high revenue —
+  that means it's already selling fine.
+  Correct pattern (apply any optional filters the user mentions — weather, category, store):
+ 
+    SELECT store_id, product_id, category,
+      ROUND(AVG(coverage_days), 1)       AS avg_coverage_days,
+      ROUND(AVG(sell_through_rate), 3)   AS avg_sell_through,
+      ROUND(AVG(inventory_level), 0)     AS avg_inventory,
+      ROUND(AVG(revenue), 2)             AS avg_daily_revenue,
+      ROUND(AVG(overstock) * 100, 1)     AS overstock_pct
+    FROM Master_View
+    [WHERE category = '...' AND/OR weather_condition = '...' AND/OR store_id = '...']
+    GROUP BY store_id, product_id, category
+    HAVING AVG(overstock) > 0.3          -- overstocked more than 30% of the time
+       AND AVG(sell_through_rate) < 0.5  -- selling less than half its stock per day
+    ORDER BY avg_coverage_days DESC, avg_sell_through ASC
+    LIMIT 10
+ - PROMOTION RECOMMENDATIONS — what should be promoted / run a campaign for:
+  A product deserves promotion when it has STOCK AVAILABLE but is NOT selling well,
+  AND it has shown it responds positively to promotions.
+  
+  lost_demand is NOT a promotion signal — high lost_demand means restock is needed,
+  not promotion. Promoting a product already in stockout makes the problem worse.
+
+  Correct signals:
+    - Low sell_through_rate (stock exists but isn't moving)
+    - Adequate coverage_days (enough stock to sustain a demand spike)
+    - High promo lift (AVG revenue with promotion vs without)
+    - is_stockout rate LOW (product is available)
+
+  Correct pattern:
+
+    SELECT store_id, product_id, category,
+      ROUND(AVG(sell_through_rate), 3)   AS avg_sell_through,
+      ROUND(AVG(coverage_days), 1)       AS avg_coverage_days,
+      ROUND(AVG(CASE WHEN promotion=1 THEN revenue END) /
+        NULLIF(AVG(CASE WHEN promotion=0 THEN revenue END), 0), 3) AS promo_lift_ratio,
+      ROUND(AVG(revenue), 2)             AS avg_daily_revenue
+    FROM Master_View
+    [WHERE seasonality = '...' AND/OR weather_condition = '...' AND/OR store_id = '...']
+    GROUP BY store_id, product_id, category
+    HAVING AVG(is_stockout) < 0.2        -- has stock to support a promotion
+       AND AVG(overstock) < 0.3          -- not a dead-stock problem (use discount instead)
+    ORDER BY promo_lift_ratio DESC,      -- best proven response to promotions first
+             avg_sell_through ASC        -- then lowest sell-through (most room to grow)
+    LIMIT 10
+
+ 
+  KEY RULE: discount = move excess stock. promote = capture missed demand.
+  These are opposites — never recommend the same product for both simultaneously.
 === QUERY TYPE — CHOOSE THE RIGHT SQL SHAPE ===
  
 1. ANALYTICAL / COMPARISON questions (impact, trend, compare, rank, average, total, best, worst,summary):
    → Write an AGGREGATE query using GROUP BY, SUM, AVG, COUNT etc.
    → Return a SMALL result set (one row per group, not raw rows).
-   - For compare/impact of weather/season/epidemic/promotion/discount/competitor pricing look at averages
+   - For compare/impact of weather/season/epidemic/promotion/discount/competitor pricing look at averages of with and without
    - For "summarize / summary / overview" requests covering a time period: aggregate by the most
       business-relevant dimension (category, store, or region) over that period, PLUS one overall
       total row. Do NOT just return a top-N list of individual products — that is row-level, not a summary.     
@@ -113,11 +193,6 @@ def _build_system_prompt(store_id: str | None) -> str:
    → Example:
      "What happened on 2023-04-05?"
        → SELECT record_date, store_id, product_id, category, units_sold, inventory_level, revenue, lost_demand, is_stockout FROM Master_View WHERE record_date = '2023-04-05' ORDER BY store_id, product_id
-
-=== BUSINESS LOGIC RULES ===
-compare regions(north south east west) by their total revenue
-Ps mean Promotion
-
 === OUTPUT FORMAT (STRICT) ===
 You must reply in this exact format and nothing else:
 

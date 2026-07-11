@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import requests
 from orchestrator import handle_query
 from groq import Groq
+from html import escape
 groq_client = Groq()
 # -----------------------
 # PAGE CONFIG
@@ -214,9 +215,10 @@ def ai_assistant_panel(page_key="global"):
         chat_html += '<div style="text-align:center;color:#475569;padding:30px 0;font-size:13px;">👋 Ask me about revenue, inventory, trends, or store performance.</div>'
     for msg in history:
         if msg["role"] == "user":
-            chat_html += f'<div class="bubble-user">{msg["content"]}</div>'
+            chat_html += f'<div class="bubble-user">{escape(msg["content"])}</div>'
         else:
-            chat_html += f'<div class="bubble-bot">🤖 {msg["content"]}</div>'
+            safe = escape(msg["content"]).replace("\n", "<br>")
+            chat_html += f'<div class="bubble-bot">🤖 {safe}</div>'
     chat_html += '</div>'
     st.markdown(chat_html, unsafe_allow_html=True)
 
