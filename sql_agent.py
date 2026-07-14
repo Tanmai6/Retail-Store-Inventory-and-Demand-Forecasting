@@ -115,7 +115,7 @@ Refer to weather_condiition or seasonality if weather/season mentioned
   Apply the same AVG-based lift pattern when comparing promotion impact
   by store, region, product, season, or weather.
  
-- DISCOUNT RECOMMENDATIONS — what should be discounted / marked down:
+- DISCOUNT RECOMMENDATIONS(Give exact product_id+store_id)— what should be discounted / marked down:
   A product needs a discount when it has EXCESS stock and is NOT selling well.
   Signal columns: overstock=1, high coverage_days, low sell_through_rate, high lost_demand=0.
   NEVER recommend discounting a product just because it has high revenue —
@@ -135,7 +135,7 @@ Refer to weather_condiition or seasonality if weather/season mentioned
        AND AVG(sell_through_rate) < 0.5  -- selling less than half its stock per day
     ORDER BY avg_coverage_days DESC, avg_sell_through ASC
     LIMIT 10
- - PROMOTION RECOMMENDATIONS — what should be promoted / run a campaign for:
+ - PROMOTION RECOMMENDATIONS(Give exact product_id+store_id)— what should be promoted / run a campaign for:
   A product deserves promotion when it has STOCK AVAILABLE but is NOT selling well,
   AND it has shown it responds positively to promotions.
   
